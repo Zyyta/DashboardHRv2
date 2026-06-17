@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { getEmployees, getDepartmentsForFilter } from '@/actions/employees';
 import { EmployeeFilters } from '@/components/employees/employee-filters';
+import { AddEmployeeButton, EmployeeRowActions } from '@/components/employees/employee-crud';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -77,9 +78,6 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
     getDepartmentsForFilter(),
   ]);
 
-  const activeCount = employees.filter((e) => e.status === 'ACTIVE').length;
-  const onLeaveCount = employees.filter((e) => e.status === 'ON_LEAVE').length;
-  const terminatedCount = employees.filter((e) => e.status === 'TERMINATED').length;
   const totalPages = Math.ceil(total / pageSize);
 
   function buildUrl(overrides: Record<string, string | undefined>): Route {
@@ -107,11 +105,14 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
       />
 
       <div className="flex-1 space-y-6 p-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Employés</h1>
-          <p className="text-muted-foreground">
-            {total} employé{total !== 1 ? 's' : ''} dans votre organisation.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Employés</h1>
+            <p className="text-muted-foreground">
+              {total} employé{total !== 1 ? 's' : ''} dans votre organisation.
+            </p>
+          </div>
+          <AddEmployeeButton departments={departments} />
         </div>
 
         {/* Summary cards */}
@@ -132,7 +133,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {activeCount}
+                {employees.filter((e) => e.status === 'ACTIVE').length}
               </div>
             </CardContent>
           </Card>
@@ -143,7 +144,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {onLeaveCount}
+                {employees.filter((e) => e.status === 'ON_LEAVE').length}
               </div>
             </CardContent>
           </Card>
@@ -154,7 +155,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {terminatedCount}
+                {employees.filter((e) => e.status === 'TERMINATED').length}
               </div>
             </CardContent>
           </Card>
@@ -182,18 +183,19 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
                 <TableHead>Embauche</TableHead>
                 <TableHead>Ancienneté</TableHead>
                 <TableHead className="text-right">Salaire</TableHead>
+                <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {employees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                     Aucun employé trouvé.
                   </TableCell>
                 </TableRow>
               ) : (
                 employees.map((employee) => (
-                  <TableRow key={employee.id} className="group cursor-pointer">
+                  <TableRow key={employee.id} className="group">
                     <TableCell>
                       <Link
                         href={`/dashboard/employees/${employee.id}`}
@@ -243,6 +245,12 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatSalary(employee.salary)}
+                    </TableCell>
+                    <TableCell>
+                      <EmployeeRowActions
+                        employee={employee}
+                        departments={departments}
+                      />
                     </TableCell>
                   </TableRow>
                 ))
