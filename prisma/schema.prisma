@@ -1,0 +1,293 @@
+// =============================================================================
+// PeopleView — HR Analytics Dashboard SaaS
+// Prisma Schema — Multi-tenant with RBAC
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum UserRole {
+  SUPER_ADMIN  // SaaS platform admin — manages all organizations
+  ORG_ADMIN    // Organization admin — manages their company's data
+  EMPLOYEE     // Regular employee — read-only access to own org stats
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum LeaveType {
+  VACATION        // Congé payé
+  SICK            // Maladie
+  MATERNITY       // Maternité
+  PATERNITY       // Paternité
+  UNPAID          // Sans solde
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TerminationReason {
+  RESIGNATION     // Démission
+  LAYOFF          // Licenciement
+  MUTUAL          // Rupture conventionnelle
+  END_OF_CONTRACT // Fin de contrat
+  RETIREMENT      // Retraite
+  OTHER
+}
+
+enum SubscriptionPlan {
+  STARTER
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+// =============================================================================
+// Multi-tenancy — Organization (Tenant)
+// =============================================================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  domain      String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users        User[]
+  departments  Department[]
+  employees    Employee[]
+  subscription Subscription?
+
+  // Stripe
+  stripeCustomerId String? @unique
+
+  @@map("organizations")
+}
+
+// =============================================================================
+// Authentication — NextAuth v5 compatible
+// =============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // For credentials provider (hashed)
+  role          UserRole  @default(EMPLOYEE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Multi-tenancy
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// =============================================================================
+// HR Data — Department
+// =============================================================================
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String?  // Hex color for charts
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Multi-tenancy
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relations
+  employees Employee[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("departments")
+}
+
+// =============================================================================
+// HR Data — Employee
+// =============================================================================
+
+model Employee {
+  id          String         @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String
+  phone       String?
+  position    String         // Job title
+  gender      Gender
+  dateOfBirth DateTime
+  hireDate    DateTime
+  salary      Float
+  status      EmployeeStatus @default(ACTIVE)
+  avatar      String?
+  address     String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Multi-tenancy
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Department
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  // Relations
+  leaveRecords       LeaveRecord[]
+  terminationRecord  TerminationRecord?
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([organizationId, departmentId])
+  @@index([organizationId, status])
+  @@index([organizationId, hireDate])
+  @@map("employees")
+}
+
+// =============================================================================
+// HR Data — Leave Records (Congés / Absences)
+// =============================================================================
+
+model LeaveRecord {
+  id        String      @id @default(cuid())
+  type      LeaveType
+  status    LeaveStatus @default(PENDING)
+  startDate DateTime
+  endDate   DateTime
+  days      Float       // Number of business days
+  reason    String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relations
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("leave_records")
+}
+
+// =============================================================================
+// HR Data — Termination Records (Départs)
+// =============================================================================
+
+model TerminationRecord {
+  id              String            @id @default(cuid())
+  terminationDate DateTime
+  reason          TerminationReason
+  notes           String?
+  createdAt       DateTime          @default(now())
+
+  // Relations
+  employeeId String   @unique
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("termination_records")
+}
+
+// =============================================================================
+// Billing — Stripe Subscription
+// =============================================================================
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  plan                   SubscriptionPlan   @default(STARTER)
+  status                 SubscriptionStatus @default(TRIALING)
+  stripeSubscriptionId   String?            @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  maxEmployees           Int                @default(25)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  // Multi-tenancy
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
