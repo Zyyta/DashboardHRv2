@@ -229,6 +229,18 @@ export async function createEmployee(data: {
     return { success: false, error: 'Tous les champs obligatoires doivent être remplis.' };
   }
 
+  // Quota enforcement
+  const [sub, activeCount] = await Promise.all([
+    prisma.subscription.findUnique({ where: { organizationId: orgId }, select: { maxEmployees: true } }),
+    prisma.employee.count({ where: { organizationId: orgId, status: { not: 'TERMINATED' } } }),
+  ]);
+  if (sub && activeCount >= sub.maxEmployees) {
+    return {
+      success: false,
+      error: `Quota atteint : ${activeCount}/${sub.maxEmployees} employés. Passez à un plan supérieur dans Facturation.`,
+    };
+  }
+
   const salaryNum = parseFloat(data.salary);
   if (isNaN(salaryNum) || salaryNum < 0) {
     return { success: false, error: 'Le salaire doit être un nombre positif.' };

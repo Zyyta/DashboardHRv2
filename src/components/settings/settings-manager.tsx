@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { User, Building2, CreditCard, Lock, Check, Loader2, Eye, EyeOff } from 'lucide-react';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -273,18 +274,18 @@ function SubscriptionTab({ subscription }: { subscription: OrgSettings['subscrip
         </CardContent>
       </Card>
 
-      {/* Upgrade CTA */}
+      {/* Billing CTA */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-semibold">Passer à Business</p>
+              <p className="font-semibold">Gérer votre abonnement</p>
               <p className="text-sm text-muted-foreground">
-                Jusqu&apos;à 500 employés, rapports avancés, accès API.
+                Plans, paiement, factures et résiliation depuis la page Facturation.
               </p>
             </div>
-            <Button variant="outline" disabled>
-              Bientôt disponible
+            <Button asChild>
+              <Link href="/dashboard/billing">Voir la facturation →</Link>
             </Button>
           </div>
         </CardContent>

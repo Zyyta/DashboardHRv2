@@ -29,6 +29,7 @@ import {
   LogOut,
   TrendingUp,
   Upload,
+  CreditCard,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -57,6 +58,7 @@ const mainNavItems: NavItem[] = [
 
 const settingsNavItems: NavItem[] = [
   { title: 'Paramètres', href: '/dashboard/settings', icon: Settings },
+  { title: 'Facturation', href: '/dashboard/billing', icon: CreditCard },
   { title: 'Administration', href: '/admin', icon: Shield },
 ];
 
