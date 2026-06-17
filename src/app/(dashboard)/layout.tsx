@@ -2,6 +2,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/dashboard/sidebar';
 import { ThemeProvider } from '@/components/shared/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
+import { CommandPalette } from '@/components/dashboard/command-palette';
 
 export default function DashboardLayout({
   children,
@@ -20,6 +21,7 @@ export default function DashboardLayout({
         <SidebarInset>{children}</SidebarInset>
       </SidebarProvider>
       <Toaster richColors position="top-right" />
+      <CommandPalette />
     </ThemeProvider>
   );
 }

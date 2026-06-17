@@ -28,6 +28,7 @@ import {
   Shield,
   LogOut,
   TrendingUp,
+  Upload,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -51,6 +52,7 @@ const mainNavItems: NavItem[] = [
   { title: 'Départements', href: '/dashboard/departments', icon: Building2 },
   { title: 'Analytique', href: '/dashboard/analytics', icon: BarChart3 },
   { title: 'Rapports', href: '/dashboard/reports', icon: FileText },
+  { title: 'Import CSV', href: '/dashboard/import', icon: Upload },
 ];
 
 const settingsNavItems: NavItem[] = [

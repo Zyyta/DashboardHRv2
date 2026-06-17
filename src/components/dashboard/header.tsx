@@ -60,7 +60,25 @@ export function DashboardHeader({ title, breadcrumbs }: DashboardHeaderProps) {
       </Breadcrumb>
 
       <div className="ml-auto flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="text-muted-foreground">
+        <Button
+          variant="outline"
+          className="hidden sm:flex h-9 gap-2 text-muted-foreground text-sm font-normal pr-2 pl-3 w-48 justify-between"
+          onClick={() => window.dispatchEvent(new Event('palette:open'))}
+        >
+          <span className="flex items-center gap-2">
+            <Search className="h-4 w-4" />
+            Rechercher…
+          </span>
+          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+            <span className="text-xs">⌘</span>K
+          </kbd>
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="sm:hidden text-muted-foreground"
+          onClick={() => window.dispatchEvent(new Event('palette:open'))}
+        >
           <Search className="h-5 w-5" />
           <span className="sr-only">Rechercher</span>
         </Button>
