@@ -184,6 +184,32 @@ export async function getEmployeeById(id: string): Promise<EmployeeDetail | null
   };
 }
 
+export interface EmployeeStatusCounts {
+  total: number;
+  active: number;
+  onLeave: number;
+  terminated: number;
+}
+
+export async function getEmployeeStatusCounts(): Promise<EmployeeStatusCounts> {
+  const orgId = await getOrgId();
+
+  const rows = await prisma.employee.groupBy({
+    by: ['status'],
+    where: { organizationId: orgId },
+    _count: { _all: true },
+  });
+
+  const counts: EmployeeStatusCounts = { total: 0, active: 0, onLeave: 0, terminated: 0 };
+  for (const row of rows) {
+    counts.total += row._count._all;
+    if (row.status === 'ACTIVE') counts.active = row._count._all;
+    else if (row.status === 'ON_LEAVE') counts.onLeave = row._count._all;
+    else if (row.status === 'TERMINATED') counts.terminated = row._count._all;
+  }
+  return counts;
+}
+
 export async function getDepartmentsForFilter(): Promise<
   { id: string; name: string; color: string | null }[]
 > {

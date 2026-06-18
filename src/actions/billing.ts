@@ -68,6 +68,7 @@ export async function createCheckoutSession(
 ): Promise<{ url: string } | { error: string }> {
   try {
     const orgUser = await getOrgUser();
+    if (orgUser.role === 'EMPLOYEE') return { error: 'Non autorisé.' };
     const orgId = orgUser.organizationId;
 
     const org = await prisma.organization.findUnique({
@@ -124,7 +125,9 @@ export async function createCheckoutSession(
 
 export async function createPortalSession(): Promise<{ url: string } | { error: string }> {
   try {
-    const orgId = await getOrgId();
+    const orgUser = await getOrgUser();
+    if (orgUser.role === 'EMPLOYEE') return { error: 'Non autorisé.' };
+    const orgId = orgUser.organizationId;
 
     const org = await prisma.organization.findUnique({
       where: { id: orgId },

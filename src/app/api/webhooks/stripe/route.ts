@@ -49,24 +49,34 @@ export async function POST(req: Request) {
 
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice;
-        console.log(`Payment succeeded for invoice ${invoice.id}`);
+        // Explicitly sync subscription status to ACTIVE when a payment succeeds.
+        // Stripe also fires customer.subscription.updated for this transition,
+        // but handling it here too ensures we recover from PAST_DUE immediately.
+        if (invoice.subscription && typeof invoice.subscription === 'string') {
+          const stripeSub = await stripe.subscriptions.retrieve(invoice.subscription);
+          await handleSubscriptionUpdate(stripeSub);
+        }
         break;
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice;
-        console.log(`Payment failed for invoice ${invoice.id}`);
         if (invoice.subscription && typeof invoice.subscription === 'string') {
           await prisma.subscription.updateMany({
             where: { stripeSubscriptionId: invoice.subscription },
             data: { status: 'PAST_DUE' },
           });
+          console.warn(`[webhook] Payment failed — subscription ${invoice.subscription} marked PAST_DUE`);
         }
         break;
       }
+
+      default:
+        // Unhandled event type — not an error
+        break;
     }
   } catch (err) {
-    console.error('Error processing webhook:', err);
+    console.error('Error processing webhook event:', event.type, err);
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
   }
 
@@ -79,14 +89,20 @@ export async function POST(req: Request) {
 
 function mapStripePlan(priceId: string): SubscriptionPlan {
   const priceMap: Record<string, SubscriptionPlan> = {
-    [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID!]: 'STARTER',
-    [process.env.STRIPE_STARTER_YEARLY_PRICE_ID!]: 'STARTER',
-    [process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID!]: 'BUSINESS',
-    [process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID!]: 'BUSINESS',
-    [process.env.STRIPE_ENTERPRISE_MONTHLY_PRICE_ID!]: 'ENTERPRISE',
-    [process.env.STRIPE_ENTERPRISE_YEARLY_PRICE_ID!]: 'ENTERPRISE',
+    [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? '']: 'STARTER',
+    [process.env.STRIPE_STARTER_YEARLY_PRICE_ID ?? '']: 'STARTER',
+    [process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID ?? '']: 'BUSINESS',
+    [process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID ?? '']: 'BUSINESS',
+    [process.env.STRIPE_ENTERPRISE_MONTHLY_PRICE_ID ?? '']: 'ENTERPRISE',
+    [process.env.STRIPE_ENTERPRISE_YEARLY_PRICE_ID ?? '']: 'ENTERPRISE',
   };
-  return priceMap[priceId] || 'STARTER';
+  // Empty string key must never match a real priceId
+  const plan = priceMap[priceId];
+  if (!plan || priceId === '') {
+    console.warn(`[webhook] Unknown priceId "${priceId}" — defaulting to STARTER`);
+    return 'STARTER';
+  }
+  return plan;
 }
 
 function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
@@ -96,8 +112,11 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     canceled: 'CANCELED',
     trialing: 'TRIALING',
     incomplete: 'INCOMPLETE',
+    incomplete_expired: 'CANCELED',
+    unpaid: 'PAST_DUE',
+    paused: 'PAST_DUE',
   };
-  return statusMap[status] || 'INCOMPLETE';
+  return statusMap[status] ?? 'INCOMPLETE';
 }
 
 function maxEmployeesForPlan(plan: SubscriptionPlan): number {
@@ -113,7 +132,10 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   const priceId = subscription.items.data[0]?.price?.id;
 
-  if (!priceId) return;
+  if (!priceId) {
+    console.error('[webhook] No priceId on subscription', subscription.id);
+    return;
+  }
 
   const plan = mapStripePlan(priceId);
   const status = mapStripeStatus(subscription.status);
@@ -123,7 +145,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   });
 
   if (!org) {
-    console.error(`No organization found for Stripe customer ${customerId}`);
+    console.error(`[webhook] No organization found for Stripe customer ${customerId}`);
     return;
   }
 
@@ -147,6 +169,8 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
       stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
     },
   });
+
+  console.log(`[webhook] Subscription updated: org=${org.id} plan=${plan} status=${status}`);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
@@ -162,6 +186,11 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     where: { organizationId: org.id },
     data: {
       status: 'CANCELED',
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      stripeCurrentPeriodEnd: null,
     },
   });
+
+  console.log(`[webhook] Subscription deleted: org=${org.id}`);
 }

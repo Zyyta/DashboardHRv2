@@ -2,7 +2,7 @@ import type { Metadata, Route } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
-import { getEmployees, getDepartmentsForFilter } from '@/actions/employees';
+import { getEmployees, getDepartmentsForFilter, getEmployeeStatusCounts } from '@/actions/employees';
 import { EmployeeFilters } from '@/components/employees/employee-filters';
 import { AddEmployeeButton, EmployeeRowActions } from '@/components/employees/employee-crud';
 import { Badge } from '@/components/ui/badge';
@@ -67,7 +67,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
   const deptFilter = params.dept ?? '';
   const page = Number(params.page ?? '1');
 
-  const [{ employees, total, pageSize }, departments] = await Promise.all([
+  const [{ employees, total, pageSize }, departments, statusCounts] = await Promise.all([
     getEmployees({
       search,
       status: statusFilter,
@@ -76,6 +76,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
       pageSize: 20,
     }),
     getDepartmentsForFilter(),
+    getEmployeeStatusCounts(),
   ]);
 
   const totalPages = Math.ceil(total / pageSize);
@@ -109,7 +110,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Employés</h1>
             <p className="text-muted-foreground">
-              {total} employé{total !== 1 ? 's' : ''} dans votre organisation.
+              {statusCounts.total} employé{statusCounts.total !== 1 ? 's' : ''} dans votre organisation.
             </p>
           </div>
           <AddEmployeeButton departments={departments} />
@@ -123,7 +124,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{total}</div>
+              <div className="text-2xl font-bold">{statusCounts.total}</div>
             </CardContent>
           </Card>
           <Card>
@@ -133,7 +134,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {employees.filter((e) => e.status === 'ACTIVE').length}
+                {statusCounts.active}
               </div>
             </CardContent>
           </Card>
@@ -144,7 +145,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {employees.filter((e) => e.status === 'ON_LEAVE').length}
+                {statusCounts.onLeave}
               </div>
             </CardContent>
           </Card>
@@ -155,7 +156,7 @@ export default async function EmployeesPage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {employees.filter((e) => e.status === 'TERMINATED').length}
+                {statusCounts.terminated}
               </div>
             </CardContent>
           </Card>
