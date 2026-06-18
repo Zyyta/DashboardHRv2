@@ -50,7 +50,12 @@ export default async function DashboardLayout({
       const isExempt = SUBSCRIPTION_EXEMPT.some((p) => pathname.startsWith(p));
 
       if (isExpired && !isExempt) {
-        redirect('/dashboard/billing');
+        // ORG_MEMBER cannot access billing — redirect to settings so they can see the notice
+        if (role === 'ORG_MEMBER') {
+          redirect('/dashboard/settings');
+        } else {
+          redirect('/dashboard/billing');
+        }
       }
     }
   }

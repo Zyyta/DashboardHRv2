@@ -41,10 +41,13 @@ export async function getOrgId(): Promise<string> {
   return session.user.organizationId;
 }
 
-/** Like getOrgId() but also blocks EMPLOYEE role. Use for all write actions. */
+/** Requires ORG_ADMIN or SUPER_ADMIN. Use for billing, user management, and org settings. */
 export async function requireAdminOrgId(): Promise<string> {
   const session = await auth();
   if (!session?.user?.organizationId) throw new Error('Non autorisé — Aucune organisation associée.');
-  if (session.user.role === 'EMPLOYEE') throw new Error('Non autorisé — droits insuffisants.');
+  const role = session.user.role;
+  if (role !== 'ORG_ADMIN' && role !== 'SUPER_ADMIN') {
+    throw new Error('Non autorisé — droits insuffisants.');
+  }
   return session.user.organizationId;
 }

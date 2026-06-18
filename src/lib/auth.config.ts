@@ -16,7 +16,7 @@ export const authConfig = {
     // No Prisma here — only reads from the already-decoded token.
     session({ session, token }) {
       if (session.user && token) {
-        session.user.role = (token.role ?? 'EMPLOYEE') as UserRole;
+        session.user.role = (token.role ?? 'ORG_MEMBER') as UserRole;
         session.user.organizationId = (token.organizationId as string | null) ?? null;
         session.user.organizationName = (token.organizationName as string | null) ?? null;
       }
@@ -26,9 +26,11 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const role = auth?.user?.role;
-      const isOnDashboard = nextUrl.pathname.startsWith('/dashboard');
-      const isOnAdmin = nextUrl.pathname.startsWith('/admin');
-      const isOnAuth = nextUrl.pathname.startsWith('/login') || nextUrl.pathname.startsWith('/register');
+      const path = nextUrl.pathname;
+      const isOnDashboard = path.startsWith('/dashboard');
+      const isOnAdmin = path.startsWith('/admin');
+      const isOnBilling = path.startsWith('/dashboard/billing');
+      const isOnAuth = path.startsWith('/login') || path.startsWith('/register');
 
       if (isOnAdmin) {
         if (!isLoggedIn) return Response.redirect(new URL('/login', nextUrl));
@@ -38,11 +40,24 @@ export const authConfig = {
         return true;
       }
 
+      // Billing is ORG_ADMIN only — ORG_MEMBER has no billing access
+      if (isOnBilling) {
+        if (!isLoggedIn) return false;
+        if (role === 'ORG_MEMBER' || role === 'EMPLOYEE') {
+          return Response.redirect(new URL('/dashboard', nextUrl));
+        }
+        return true;
+      }
+
       if (isOnDashboard) {
-        return isLoggedIn;
+        if (!isLoggedIn) return false;
+        // Legacy EMPLOYEE accounts have no dashboard access
+        if (role === 'EMPLOYEE') return Response.redirect(new URL('/unauthorized', nextUrl));
+        return true;
       }
 
       if (isOnAuth && isLoggedIn) {
+        if (role === 'EMPLOYEE') return Response.redirect(new URL('/unauthorized', nextUrl));
         return Response.redirect(new URL('/dashboard', nextUrl));
       }
 

@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import { getOrgId, requireAdminOrgId } from '@/lib/session';
+import { getOrgId } from '@/lib/session';
 import { CreateEmployeeSchema, UpdateEmployeeSchema } from '@/lib/validators';
 import type { ActionResult } from '@/types';
 import type { EmployeeStatus, Gender } from '@prisma/client';
@@ -237,7 +237,7 @@ export async function createEmployee(data: {
   phone?: string;
   address?: string;
 }): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const parsed = CreateEmployeeSchema.safeParse(data);
   if (!parsed.success) {
@@ -325,7 +325,7 @@ export async function updateEmployee(
     address?: string;
   }
 ): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const parsed = UpdateEmployeeSchema.safeParse(data);
   if (!parsed.success) {
@@ -396,7 +396,7 @@ export async function updateEmployeeStatus(
   id: string,
   status: EmployeeStatus
 ): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const employee = await prisma.employee.findFirst({
     where: { id, organizationId: orgId },
@@ -421,7 +421,7 @@ export async function updateEmployeeStatus(
 }
 
 export async function deleteEmployee(id: string): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const employee = await prisma.employee.findFirst({
     where: { id, organizationId: orgId },

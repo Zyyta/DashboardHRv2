@@ -21,7 +21,8 @@ export interface OrgAdminData {
   users: OrgUser[];
   orgName: string;
   employeeCount: number;
-  subscription: { plan: string; status: string; maxEmployees: number } | null;
+  inviteCode: string;
+  subscription: { plan: string; status: string; maxEmployees: number; maxDashboardUsers: number } | null;
 }
 
 export async function getOrgAdminData(): Promise<OrgAdminData> {
@@ -39,7 +40,7 @@ export async function getOrgAdminData(): Promise<OrgAdminData> {
         select: { id: true, name: true, email: true, role: true, createdAt: true },
       },
       subscription: {
-        select: { plan: true, status: true, maxEmployees: true },
+        select: { plan: true, status: true, maxEmployees: true, maxDashboardUsers: true },
       },
       _count: { select: { employees: true } },
     },
@@ -50,6 +51,7 @@ export async function getOrgAdminData(): Promise<OrgAdminData> {
   return {
     orgName: org.name,
     employeeCount: org._count.employees,
+    inviteCode: org.inviteCode,
     subscription: org.subscription,
     users: org.users.map((u) => ({ ...u, isSelf: u.id === user.id })),
   };
@@ -102,6 +104,31 @@ export async function removeOrgUser(userId: string): Promise<ActionResult> {
     return { success: true };
   } catch (e) {
     console.error('[removeOrgUser]', e);
+    return { success: false, error: 'Une erreur est survenue.' };
+  }
+}
+
+// ---------- Invite code ----------
+
+export async function regenerateInviteCode(): Promise<ActionResult & { inviteCode?: string }> {
+  const user = await getAuthUser();
+  if (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN') {
+    return { success: false, error: 'Non autorisé.' };
+  }
+  if (!user.organizationId) return { success: false, error: 'Non autorisé.' };
+
+  const { randomBytes } = await import('crypto');
+  const inviteCode = randomBytes(16).toString('hex');
+
+  try {
+    await prisma.organization.update({
+      where: { id: user.organizationId },
+      data: { inviteCode },
+    });
+    revalidatePath('/admin');
+    return { success: true, inviteCode };
+  } catch (e) {
+    console.error('[regenerateInviteCode]', e);
     return { success: false, error: 'Une erreur est survenue.' };
   }
 }

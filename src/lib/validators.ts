@@ -38,6 +38,13 @@ export const RegisterSchema = z.object({
   companyName: z.string().min(1, "Le nom de l'entreprise est obligatoire.").max(200),
 });
 
+export const JoinOrgSchema = z.object({
+  name: z.string().min(1, 'Le nom est obligatoire.').max(100),
+  email: z.string().email('Adresse email invalide.'),
+  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères.'),
+  inviteCode: z.string().min(1, "Le code d'invitation est obligatoire."),
+});
+
 export const UpdateUserProfileSchema = z.object({
   name: z.string().min(1, 'Le nom est obligatoire.').max(100),
 });

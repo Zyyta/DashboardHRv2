@@ -128,6 +128,15 @@ function maxEmployeesForPlan(plan: SubscriptionPlan): number {
   }
 }
 
+function maxDashboardUsersForPlan(plan: SubscriptionPlan): number {
+  switch (plan) {
+    case 'STARTER': return 3;
+    case 'BUSINESS': return 10;
+    case 'ENTERPRISE': return 999999;
+    default: return 3;
+  }
+}
+
 async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   const priceId = subscription.items.data[0]?.price?.id;
@@ -158,6 +167,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
       plan,
       status,
       maxEmployees: maxEmployeesForPlan(plan),
+      maxDashboardUsers: maxDashboardUsersForPlan(plan),
       stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
     },
     update: {
@@ -166,6 +176,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
       plan,
       status,
       maxEmployees: maxEmployeesForPlan(plan),
+      maxDashboardUsers: maxDashboardUsersForPlan(plan),
       stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
     },
   });

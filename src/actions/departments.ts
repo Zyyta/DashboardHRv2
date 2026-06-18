@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import { getOrgId, requireAdminOrgId } from '@/lib/session';
+import { getOrgId } from '@/lib/session';
 import { CreateDepartmentSchema, UpdateDepartmentSchema } from '@/lib/validators';
 import type { ActionResult } from '@/types';
 
@@ -59,7 +59,7 @@ export async function createDepartment(input: {
   description?: string;
   color: string;
 }): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const parsed = CreateDepartmentSchema.safeParse(input);
   if (!parsed.success) {
@@ -92,7 +92,7 @@ export async function updateDepartment(
   id: string,
   input: { name: string; description?: string; color: string }
 ): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const parsed = UpdateDepartmentSchema.safeParse(input);
   if (!parsed.success) {
@@ -129,7 +129,7 @@ export async function updateDepartment(
 }
 
 export async function deleteDepartment(id: string): Promise<ActionResult> {
-  const orgId = await requireAdminOrgId();
+  const orgId = await getOrgId();
 
   const dept = await prisma.department.findFirst({
     where: { id, organizationId: orgId },

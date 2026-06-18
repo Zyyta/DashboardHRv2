@@ -18,8 +18,9 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN  // SaaS platform admin — manages all organizations
-  ORG_ADMIN    // Organization admin — manages their company's data
-  EMPLOYEE     // Regular employee — read-only access to own org stats
+  ORG_ADMIN    // Organization owner — bought the product, manages billing/users
+  ORG_MEMBER   // HR staff invited via invite code — full HR access, no billing
+  EMPLOYEE     // Deprecated — kept for DB compatibility, no new users assigned this role
 }
 
 enum Gender {
@@ -91,6 +92,9 @@ model Organization {
   employees    Employee[]
   subscription Subscription?
 
+  // Invite system — HR staff join the org using this code
+  inviteCode String @unique @default(cuid())
+
   // Stripe
   stripeCustomerId String? @unique
 
@@ -108,7 +112,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?   // For credentials provider (hashed)
-  role          UserRole  @default(EMPLOYEE)
+  role          UserRole  @default(ORG_MEMBER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -282,6 +286,7 @@ model Subscription {
   stripePriceId          String?
   stripeCurrentPeriodEnd DateTime?
   maxEmployees           Int                @default(25)
+  maxDashboardUsers      Int                @default(3)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 

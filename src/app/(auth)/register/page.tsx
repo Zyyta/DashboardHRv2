@@ -8,15 +8,19 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BarChart3, Loader2, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { BarChart3, Loader2, Eye, EyeOff, CheckCircle2, Building2, Users } from 'lucide-react';
+
+type Flow = 'create' | 'join';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [flow, setFlow] = useState<Flow>('create');
   const [form, setForm] = useState({
     name: '',
     email: '',
     password: '',
     companyName: '',
+    inviteCode: '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,10 +35,15 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const payload =
+        flow === 'create'
+          ? { name: form.name, email: form.email, password: form.password, companyName: form.companyName }
+          : { name: form.name, email: form.email, password: form.password, inviteCode: form.inviteCode };
+
+      const res = await fetch(`/api/auth/register?flow=${flow}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -44,7 +53,6 @@ export default function RegisterPage() {
         return;
       }
 
-      // Auto sign-in after registration
       const result = await signIn('credentials', {
         email: form.email,
         password: form.password,
@@ -66,11 +74,11 @@ export default function RegisterPage() {
     }
   };
 
-  const perks = [
-    '14 jours d\'essai gratuit',
+  const createPerks = [
+    "14 jours d'essai gratuit",
     'Aucune carte bancaire requise',
     'Tableau de bord RH complet',
-    'Données supprimées à la fin de l\'essai',
+    'Code d\'invitation généré automatiquement',
   ];
 
   return (
@@ -88,26 +96,68 @@ export default function RegisterPage() {
             </div>
             <div>
               <CardTitle className="text-2xl font-bold text-white">
-                Créer votre espace PeopleView
+                Créer un compte PeopleView
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Essai gratuit 14 jours — sans engagement
+                Rejoignez votre équipe ou créez votre espace
               </CardDescription>
             </div>
           </CardHeader>
 
           <CardContent className="space-y-5">
-            {/* Perks */}
-            <div className="grid grid-cols-2 gap-2">
-              {perks.map((perk) => (
-                <div key={perk} className="flex items-center gap-2 text-xs text-slate-400">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                  {perk}
-                </div>
-              ))}
+            {/* Flow toggle */}
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
+              <button
+                type="button"
+                onClick={() => { setFlow('create'); setError(''); }}
+                className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+                  flow === 'create'
+                    ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Building2 className="h-4 w-4" />
+                Créer une organisation
+              </button>
+              <button
+                type="button"
+                onClick={() => { setFlow('join'); setError(''); }}
+                className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+                  flow === 'join'
+                    ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                Rejoindre une organisation
+              </button>
             </div>
 
-            <div className="border-t border-white/10" />
+            {/* Perks (create flow only) */}
+            {flow === 'create' && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {createPerks.map((perk) => (
+                    <div key={perk} className="flex items-center gap-2 text-xs text-slate-400">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                      {perk}
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-white/10" />
+              </>
+            )}
+
+            {/* Join info banner */}
+            {flow === 'join' && (
+              <>
+                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-300">
+                  Votre administrateur RH vous a fourni un code d&apos;invitation.
+                  Entrez-le ci-dessous pour rejoindre votre espace PeopleView.
+                </div>
+                <div className="border-t border-white/10" />
+              </>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
@@ -116,11 +166,9 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={flow === 'create' ? 'grid grid-cols-2 gap-4' : ''}>
                 <div className="space-y-2">
-                  <Label htmlFor="name" className="text-slate-300">
-                    Nom complet
-                  </Label>
+                  <Label htmlFor="name" className="text-slate-300">Nom complet</Label>
                   <Input
                     id="name"
                     placeholder="Marie Dupont"
@@ -130,25 +178,24 @@ export default function RegisterPage() {
                     className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-indigo-500"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="companyName" className="text-slate-300">
-                    Nom de l&apos;entreprise
-                  </Label>
-                  <Input
-                    id="companyName"
-                    placeholder="TechVision SAS"
-                    value={form.companyName}
-                    onChange={update('companyName')}
-                    required
-                    className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-indigo-500"
-                  />
-                </div>
+
+                {flow === 'create' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="companyName" className="text-slate-300">Nom de l&apos;entreprise</Label>
+                    <Input
+                      id="companyName"
+                      placeholder="TechVision SAS"
+                      value={form.companyName}
+                      onChange={update('companyName')}
+                      required
+                      className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-indigo-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-slate-300">
-                  Email professionnel
-                </Label>
+                <Label htmlFor="email" className="text-slate-300">Email professionnel</Label>
                 <Input
                   id="email"
                   type="email"
@@ -161,9 +208,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-slate-300">
-                  Mot de passe
-                </Label>
+                <Label htmlFor="password" className="text-slate-300">Mot de passe</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -190,6 +235,20 @@ export default function RegisterPage() {
                 )}
               </div>
 
+              {flow === 'join' && (
+                <div className="space-y-2">
+                  <Label htmlFor="inviteCode" className="text-slate-300">Code d&apos;invitation</Label>
+                  <Input
+                    id="inviteCode"
+                    placeholder="Code fourni par votre administrateur"
+                    value={form.inviteCode}
+                    onChange={update('inviteCode')}
+                    required
+                    className="border-white/10 bg-white/5 font-mono text-white placeholder:text-slate-500 focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
               <Button
                 type="submit"
                 disabled={loading}
@@ -198,19 +257,23 @@ export default function RegisterPage() {
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Création en cours…
+                    {flow === 'create' ? 'Création en cours…' : 'Connexion en cours…'}
                   </>
+                ) : flow === 'create' ? (
+                  "Démarrer l'essai gratuit"
                 ) : (
-                  'Démarrer l\'essai gratuit'
+                  'Rejoindre mon équipe'
                 )}
               </Button>
 
-              <p className="text-center text-xs text-slate-500">
-                En créant un compte, vous acceptez nos{' '}
-                <span className="text-slate-400">Conditions d&apos;utilisation</span>
-                {' '}et notre{' '}
-                <span className="text-slate-400">Politique de confidentialité</span>.
-              </p>
+              {flow === 'create' && (
+                <p className="text-center text-xs text-slate-500">
+                  En créant un compte, vous acceptez nos{' '}
+                  <span className="text-slate-400">Conditions d&apos;utilisation</span>
+                  {' '}et notre{' '}
+                  <span className="text-slate-400">Politique de confidentialité</span>.
+                </p>
+              )}
             </form>
 
             <div className="border-t border-white/10 pt-4">

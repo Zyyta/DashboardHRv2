@@ -73,7 +73,9 @@ export async function updateOrgProfile(input: {
   domain: string;
 }): Promise<ActionResult> {
   const orgUser = await getOrgUser();
-  if (orgUser.role === 'EMPLOYEE') return { success: false, error: 'Non autorisé.' };
+  if (orgUser.role !== 'ORG_ADMIN' && orgUser.role !== 'SUPER_ADMIN') {
+    return { success: false, error: 'Non autorisé.' };
+  }
 
   const parsed = UpdateOrgProfileSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };

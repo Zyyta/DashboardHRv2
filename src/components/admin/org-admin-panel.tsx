@@ -4,13 +4,11 @@ import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
   Shield, Users, UserCheck, UserX, Trash2, Loader2,
-  Building2, CreditCard, MoreVertical, Mail, Info,
+  Building2, CreditCard, MoreVertical, Key, Copy, RefreshCw, Check,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,17 +26,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { updateUserRole, removeOrgUser, type OrgAdminData, type OrgUser } from '@/actions/admin';
+import { updateUserRole, removeOrgUser, regenerateInviteCode, type OrgAdminData, type OrgUser } from '@/actions/admin';
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
   ORG_ADMIN: 'Administrateur',
-  EMPLOYEE: 'Employé',
+  ORG_MEMBER: 'Membre RH',
+  EMPLOYEE: 'Employé (déprécié)',
 };
 
 const ROLE_COLORS: Record<string, string> = {
   SUPER_ADMIN: 'bg-red-500/10 text-red-600 border-red-200 dark:text-red-400',
   ORG_ADMIN: 'bg-violet-500/10 text-violet-600 border-violet-200 dark:text-violet-400',
+  ORG_MEMBER: 'bg-indigo-500/10 text-indigo-600 border-indigo-200 dark:text-indigo-400',
   EMPLOYEE: 'bg-slate-500/10 text-slate-600 border-slate-200 dark:text-slate-400',
 };
 
@@ -115,12 +115,12 @@ function UserRow({
                 Administrateur
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => onRoleChange(user.id, 'EMPLOYEE')}
-                disabled={user.role === 'EMPLOYEE'}
+                onClick={() => onRoleChange(user.id, 'ORG_MEMBER')}
+                disabled={user.role === 'ORG_MEMBER'}
                 className="gap-2"
               >
                 <UserX className="h-4 w-4 text-muted-foreground" />
-                Employé
+                Membre RH
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -141,17 +141,41 @@ function UserRow({
 export function OrgAdminPanel({ data }: Props) {
   const [isPending, startTransition] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<OrgUser | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteCode, setInviteCode] = useState(data.inviteCode);
+  const [copied, setCopied] = useState(false);
 
   const usagePct = data.subscription
     ? Math.min(100, Math.round((data.employeeCount / data.subscription.maxEmployees) * 100))
     : 0;
 
+  const seatUsage = data.subscription
+    ? Math.min(100, Math.round((data.users.length / data.subscription.maxDashboardUsers) * 100))
+    : 0;
+
   function handleRoleChange(userId: string, role: string) {
     startTransition(async () => {
-      const result = await updateUserRole(userId, role as 'ORG_ADMIN' | 'EMPLOYEE');
+      const result = await updateUserRole(userId, role as 'ORG_ADMIN' | 'ORG_MEMBER');
       if (result.success) toast.success('Rôle mis à jour.');
       else toast.error(result.error);
+    });
+  }
+
+  function handleCopyCode() {
+    navigator.clipboard.writeText(inviteCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function handleRegenerate() {
+    startTransition(async () => {
+      const result = await regenerateInviteCode();
+      if (result.success && result.inviteCode) {
+        setInviteCode(result.inviteCode);
+        toast.success("Code d'invitation régénéré.");
+      } else if (!result.success) {
+        toast.error(result.error);
+      }
     });
   }
 
@@ -163,12 +187,6 @@ export function OrgAdminPanel({ data }: Props) {
       else toast.error(result.error);
       setDeleteTarget(null);
     });
-  }
-
-  function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    toast.info('L\'invitation par email sera disponible prochainement.');
-    setInviteEmail('');
   }
 
   return (
@@ -235,26 +253,43 @@ export function OrgAdminPanel({ data }: Props) {
           </Card>
         </div>
 
-        {/* Usage bar */}
+        {/* Usage bars */}
         {data.subscription && (
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Utilisation du quota</CardTitle>
-                <span className={`text-sm font-semibold ${usagePct >= 100 ? 'text-red-500' : usagePct >= 80 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                  {usagePct}%
-                </span>
-              </div>
+              <CardTitle className="text-base">Utilisation des quotas</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="h-3 w-full rounded-full bg-muted overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${usagePct >= 100 ? 'bg-red-500' : usagePct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${usagePct}%` }}
-                />
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Employés suivis</span>
+                  <span className={`font-semibold ${usagePct >= 100 ? 'text-red-500' : usagePct >= 80 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {data.employeeCount} / {data.subscription.maxEmployees}
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${usagePct >= 100 ? 'bg-red-500' : usagePct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${usagePct}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Utilisateurs RH (licences)</span>
+                  <span className={`font-semibold ${seatUsage >= 100 ? 'text-red-500' : seatUsage >= 80 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {data.users.length} / {data.subscription.maxDashboardUsers}
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${seatUsage >= 100 ? 'bg-red-500' : seatUsage >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                    style={{ width: `${seatUsage}%` }}
+                  />
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                {data.employeeCount} employés actifs sur {data.subscription.maxEmployees} autorisés par votre plan {PLAN_LABELS[data.subscription.plan]}.
+                Plan {PLAN_LABELS[data.subscription.plan]}
               </p>
             </CardContent>
           </Card>
@@ -294,40 +329,46 @@ export function OrgAdminPanel({ data }: Props) {
           </CardContent>
         </Card>
 
-        {/* Invite section */}
-        <Card className="border-dashed">
+        {/* Invite code section */}
+        <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Mail className="h-4 w-4 text-primary" />
-              Inviter un collaborateur
+              <Key className="h-4 w-4 text-primary" />
+              Code d&apos;invitation
             </CardTitle>
             <CardDescription>
-              Donnez accès à PeopleView à un membre de votre équipe RH.
+              Partagez ce code avec vos collaborateurs RH pour qu&apos;ils créent leur compte.
+              Ils devront le saisir lors de l&apos;inscription en choisissant &quot;Rejoindre une organisation&quot;.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleInvite} className="flex gap-3">
-              <div className="flex-1">
-                <Label htmlFor="invite-email" className="sr-only">Email</Label>
-                <Input
-                  id="invite-email"
-                  type="email"
-                  placeholder="colleague@company.fr"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                />
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 rounded-lg border border-white/10 bg-muted/50 px-4 py-3 font-mono text-sm tracking-widest">
+                {inviteCode}
               </div>
-              <Button type="submit" disabled={!inviteEmail.trim()}>
-                Inviter
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleCopyCode}
+                title="Copier le code"
+                className="flex-shrink-0"
+              >
+                {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
               </Button>
-            </form>
-            <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-              <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-              <span>
-                L&apos;invitation par email sera disponible dans une prochaine mise à jour.
-                L&apos;invité recevra un lien pour créer son compte avec accès à votre organisation.
-              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleRegenerate}
+                disabled={isPending}
+                title="Générer un nouveau code (invalide l'ancien)"
+                className="flex-shrink-0"
+              >
+                <RefreshCw className={`h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Régénérer le code invalide immédiatement l&apos;ancien — les personnes qui ne l&apos;ont pas encore utilisé devront obtenir le nouveau.
+            </p>
           </CardContent>
         </Card>
 
