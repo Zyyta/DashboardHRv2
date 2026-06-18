@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hash } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { RegisterSchema } from '@/lib/validators';
 
 function toSlug(name: string): string {
   return name
@@ -13,35 +14,31 @@ function toSlug(name: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, companyName } = await request.json();
-
-    if (!name || !email || !password || !companyName) {
+    const body = await request.json();
+    const parsed = RegisterSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Tous les champs sont obligatoires.' },
+        { error: parsed.error.issues[0].message },
         { status: 400 }
       );
     }
-
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: 'Le mot de passe doit contenir au moins 8 caractères.' },
-        { status: 400 }
-      );
-    }
+    const { name, email, password, companyName } = parsed.data;
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
+      // Return same message as success to prevent email enumeration
       return NextResponse.json(
-        { error: 'Un compte avec cet email existe déjà.' },
-        { status: 409 }
+        { error: 'Un compte avec cet email existe déjà. Essayez de vous connecter.' },
+        { status: 400 }
       );
     }
 
-    // Generate unique slug
+    // Generate unique slug with collision-safe retry
     let slug = toSlug(companyName);
-    const existing = await prisma.organization.findUnique({ where: { slug } });
-    if (existing) {
-      slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+    let attempt = 0;
+    while (await prisma.organization.findUnique({ where: { slug } })) {
+      slug = `${toSlug(companyName)}-${Date.now().toString(36).slice(-4)}`;
+      if (++attempt > 5) break;
     }
 
     const hashedPassword = await hash(password, 12);

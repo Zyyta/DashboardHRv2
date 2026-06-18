@@ -5,8 +5,8 @@
 
 'use server';
 
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getOrgId } from '@/lib/session';
 import type {
   DashboardStats,
   DepartmentDistribution,
@@ -17,18 +17,6 @@ import type {
   MonthlyAbsence,
   SalaryEquity,
 } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Helper: Get authenticated organization ID
-// ---------------------------------------------------------------------------
-
-async function getOrgId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.organizationId) {
-    throw new Error('Non autorisé — Aucune organisation associée.');
-  }
-  return session.user.organizationId;
-}
 
 // ---------------------------------------------------------------------------
 // Main: Get all dashboard statistics
@@ -155,19 +143,12 @@ async function getAbsenteeismRate(orgId: string): Promise<number> {
 }
 
 async function getAverageTenure(orgId: string): Promise<number> {
-  const employees = await prisma.employee.findMany({
-    where: { organizationId: orgId, status: 'ACTIVE' },
-    select: { hireDate: true },
-  });
-
-  if (employees.length === 0) return 0;
-
-  const now = Date.now();
-  const totalYears = employees.reduce((sum, emp) => {
-    return sum + (now - emp.hireDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-  }, 0);
-
-  return Math.round((totalYears / employees.length) * 10) / 10;
+  const result = await prisma.$queryRaw<[{ avg_tenure: number | null }]>`
+    SELECT AVG(EXTRACT(EPOCH FROM (NOW() - "hireDate")) / (365.25 * 86400)) AS avg_tenure
+    FROM employees
+    WHERE "organizationId" = ${orgId} AND status = 'ACTIVE'
+  `;
+  return Math.round((Number(result[0]?.avg_tenure) || 0) * 10) / 10;
 }
 
 async function getDepartmentDistribution(orgId: string): Promise<DepartmentDistribution[]> {
@@ -193,36 +174,31 @@ async function getMonthlyHeadcount(orgId: string): Promise<MonthlyHeadcount[]> {
     'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc',
   ];
 
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+  twelveMonthsAgo.setDate(1);
+
+  const [hires, departures] = await Promise.all([
+    prisma.employee.findMany({
+      where: { organizationId: orgId, hireDate: { gte: twelveMonthsAgo } },
+      select: { hireDate: true },
+    }),
+    prisma.terminationRecord.findMany({
+      where: { employee: { organizationId: orgId }, terminationDate: { gte: twelveMonthsAgo } },
+      select: { terminationDate: true },
+    }),
+  ]);
+
   const now = new Date();
-  const result: MonthlyHeadcount[] = [];
-
-  for (let i = 11; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-
-    const [hires, departures] = await Promise.all([
-      prisma.employee.count({
-        where: {
-          organizationId: orgId,
-          hireDate: { gte: date, lt: nextMonth },
-        },
-      }),
-      prisma.terminationRecord.count({
-        where: {
-          employee: { organizationId: orgId },
-          terminationDate: { gte: date, lt: nextMonth },
-        },
-      }),
-    ]);
-
-    result.push({
-      month: months[date.getMonth()],
-      embauches: hires,
-      departs: departures,
-    });
-  }
-
-  return result;
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    return {
+      month: months[d.getMonth()],
+      embauches: hires.filter((e) => e.hireDate >= d && e.hireDate < next).length,
+      departs: departures.filter((e) => e.terminationDate >= d && e.terminationDate < next).length,
+    };
+  });
 }
 
 async function getMonthlyTurnover(orgId: string): Promise<MonthlyTurnover[]> {
@@ -231,41 +207,40 @@ async function getMonthlyTurnover(orgId: string): Promise<MonthlyTurnover[]> {
     'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc',
   ];
 
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+  twelveMonthsAgo.setDate(1);
+
+  const [terminations, allHires] = await Promise.all([
+    prisma.terminationRecord.findMany({
+      where: { employee: { organizationId: orgId }, terminationDate: { gte: twelveMonthsAgo } },
+      select: { terminationDate: true },
+    }),
+    prisma.employee.findMany({
+      where: { organizationId: orgId },
+      select: { hireDate: true },
+    }),
+  ]);
+
   const now = new Date();
-  const result: MonthlyTurnover[] = [];
   let runningSum = 0;
 
-  for (let i = 11; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
 
-    const [departed, total] = await Promise.all([
-      prisma.terminationRecord.count({
-        where: {
-          employee: { organizationId: orgId },
-          terminationDate: { gte: date, lt: nextMonth },
-        },
-      }),
-      prisma.employee.count({
-        where: {
-          organizationId: orgId,
-          hireDate: { lt: nextMonth },
-        },
-      }),
-    ]);
+    const departed = terminations.filter((t) => t.terminationDate >= d && t.terminationDate < next).length;
+    const total = allHires.filter((e) => e.hireDate < next).length;
 
     const rate = total > 0 ? Math.round((departed / total) * 100 * 10) / 10 : 0;
     runningSum += rate;
-    const idx = 12 - i;
 
-    result.push({
-      month: months[date.getMonth()],
+    return {
+      month: months[d.getMonth()],
       taux: rate,
-      moyenne: Math.round((runningSum / idx) * 10) / 10,
-    });
-  }
-
-  return result;
+      moyenne: Math.round((runningSum / (i + 1)) * 10) / 10,
+    };
+  });
 }
 
 async function getAgePyramid(orgId: string): Promise<AgePyramidData[]> {
@@ -332,39 +307,40 @@ async function getMonthlyAbsence(orgId: string): Promise<MonthlyAbsence[]> {
     'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc',
   ];
 
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+  twelveMonthsAgo.setDate(1);
+
+  const [leaveRecords, activeCount] = await Promise.all([
+    prisma.leaveRecord.findMany({
+      where: {
+        employee: { organizationId: orgId, status: 'ACTIVE' },
+        status: 'APPROVED',
+        startDate: { gte: twelveMonthsAgo },
+      },
+      select: { startDate: true, days: true },
+    }),
+    prisma.employee.count({ where: { organizationId: orgId, status: 'ACTIVE' } }),
+  ]);
+
+  const totalWorkDays = activeCount * 22;
   const now = new Date();
-  const result: MonthlyAbsence[] = [];
 
-  for (let i = 11; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
 
-    const [leaveDays, activeCount] = await Promise.all([
-      prisma.leaveRecord.aggregate({
-        _sum: { days: true },
-        where: {
-          employee: { organizationId: orgId, status: 'ACTIVE' },
-          status: 'APPROVED',
-          startDate: { gte: date, lt: nextMonth },
-        },
-      }),
-      prisma.employee.count({
-        where: { organizationId: orgId, status: 'ACTIVE' },
-      }),
-    ]);
+    const totalDays = leaveRecords
+      .filter((r) => r.startDate >= d && r.startDate < next)
+      .reduce((s, r) => s + r.days, 0);
 
-    const totalWorkDays = activeCount * 22;
-    const rate = totalWorkDays > 0
-      ? Math.round(((leaveDays._sum.days || 0) / totalWorkDays) * 100 * 10) / 10
-      : 0;
-
-    result.push({
-      month: months[date.getMonth()],
-      taux: rate,
-    });
-  }
-
-  return result;
+    return {
+      month: months[d.getMonth()],
+      taux: totalWorkDays > 0
+        ? Math.round((totalDays / totalWorkDays) * 100 * 10) / 10
+        : 0,
+    };
+  });
 }
 
 async function getSalaryEquity(orgId: string): Promise<SalaryEquity[]> {

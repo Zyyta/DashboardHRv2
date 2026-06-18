@@ -60,15 +60,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as unknown as Record<string, unknown>).role as UserRole;
-        token.organizationId = (user as unknown as Record<string, unknown>).organizationId as string | null;
-        token.organizationName = (user as unknown as Record<string, unknown>).organizationName as string | null;
+        // Initial sign-in: use values from authorize()
+        token.role = user.role;
+        token.organizationId = user.organizationId;
+        token.organizationName = user.organizationName;
+      } else if (token.sub) {
+        // Subsequent requests: re-fetch role so changes take effect without re-login
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: { role: true, organizationId: true },
+        });
+        if (dbUser) {
+          token.role = dbUser.role;
+          token.organizationId = dbUser.organizationId;
+        }
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.sub!;
+        if (!token.sub) throw new Error('Invalid token: missing sub');
+        session.user.id = token.sub;
         session.user.role = token.role as UserRole;
         session.user.organizationId = token.organizationId as string | null;
         session.user.organizationName = token.organizationName as string | null;

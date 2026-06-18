@@ -1,22 +1,11 @@
 'use server';
 
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getOrgId, requireAdminOrgId } from '@/lib/session';
+import { CreateEmployeeSchema, UpdateEmployeeSchema } from '@/lib/validators';
+import type { ActionResult } from '@/types';
 import type { EmployeeStatus, Gender } from '@prisma/client';
-
-async function getOrgId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.organizationId) {
-    throw new Error('Non autorisé — Aucune organisation associée.');
-  }
-  return session.user.organizationId;
-}
-
-export interface ActionResult {
-  success: boolean;
-  error?: string;
-}
 
 export interface EmployeeRow {
   id: string;
@@ -222,23 +211,11 @@ export async function createEmployee(data: {
   phone?: string;
   address?: string;
 }): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
-  if (!data.firstName || !data.lastName || !data.email || !data.position ||
-      !data.gender || !data.dateOfBirth || !data.hireDate || !data.salary || !data.departmentId) {
-    return { success: false, error: 'Tous les champs obligatoires doivent être remplis.' };
-  }
-
-  // Quota enforcement
-  const [sub, activeCount] = await Promise.all([
-    prisma.subscription.findUnique({ where: { organizationId: orgId }, select: { maxEmployees: true } }),
-    prisma.employee.count({ where: { organizationId: orgId, status: { not: 'TERMINATED' } } }),
-  ]);
-  if (sub && activeCount >= sub.maxEmployees) {
-    return {
-      success: false,
-      error: `Quota atteint : ${activeCount}/${sub.maxEmployees} employés. Passez à un plan supérieur dans Facturation.`,
-    };
+  const parsed = CreateEmployeeSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message };
   }
 
   const salaryNum = parseFloat(data.salary);
@@ -261,27 +238,46 @@ export async function createEmployee(data: {
   }
 
   try {
-    await prisma.employee.create({
-      data: {
-        firstName: data.firstName.trim(),
-        lastName: data.lastName.trim(),
-        email: data.email.trim().toLowerCase(),
-        position: data.position.trim(),
-        gender: data.gender as Gender,
-        dateOfBirth: new Date(data.dateOfBirth),
-        hireDate: new Date(data.hireDate),
-        salary: salaryNum,
-        departmentId: data.departmentId,
-        phone: data.phone?.trim() || null,
-        address: data.address?.trim() || null,
-        organizationId: orgId,
-        status: 'ACTIVE',
-      },
+    // Quota check + create inside a transaction to prevent race conditions
+    await prisma.$transaction(async (tx) => {
+      const [sub, activeCount] = await Promise.all([
+        tx.subscription.findUnique({ where: { organizationId: orgId }, select: { maxEmployees: true } }),
+        tx.employee.count({ where: { organizationId: orgId, status: { not: 'TERMINATED' } } }),
+      ]);
+      if (sub && activeCount >= sub.maxEmployees) {
+        throw new Error(`QUOTA:${activeCount}/${sub.maxEmployees}`);
+      }
+      await tx.employee.create({
+        data: {
+          firstName: data.firstName.trim(),
+          lastName: data.lastName.trim(),
+          email: data.email.trim().toLowerCase(),
+          position: data.position.trim(),
+          gender: data.gender as Gender,
+          dateOfBirth: new Date(data.dateOfBirth),
+          hireDate: new Date(data.hireDate),
+          salary: salaryNum,
+          departmentId: data.departmentId,
+          phone: data.phone?.trim() || null,
+          address: data.address?.trim() || null,
+          organizationId: orgId,
+          status: 'ACTIVE',
+        },
+      });
     });
 
     revalidatePath('/dashboard/employees');
     return { success: true };
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.startsWith('QUOTA:')) {
+      const parts = msg.replace('QUOTA:', '').split('/');
+      return {
+        success: false,
+        error: `Quota atteint : ${parts[0]}/${parts[1]} employés. Passez à un plan supérieur dans Facturation.`,
+      };
+    }
+    console.error('[createEmployee]', e);
     return { success: false, error: "Erreur lors de la création de l'employé." };
   }
 }
@@ -303,7 +299,12 @@ export async function updateEmployee(
     address?: string;
   }
 ): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
+
+  const parsed = UpdateEmployeeSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message };
+  }
 
   const employee = await prisma.employee.findFirst({
     where: { id, organizationId: orgId },
@@ -329,6 +330,14 @@ export async function updateEmployee(
     return { success: false, error: 'Un autre employé utilise déjà cet email.' };
   }
 
+  // Verify departmentId belongs to this org (prevents cross-tenant IDOR)
+  const dept = await prisma.department.findFirst({
+    where: { id: data.departmentId, organizationId: orgId },
+  });
+  if (!dept) {
+    return { success: false, error: 'Département introuvable.' };
+  }
+
   try {
     await prisma.employee.update({
       where: { id },
@@ -351,7 +360,8 @@ export async function updateEmployee(
     revalidatePath('/dashboard/employees');
     revalidatePath(`/dashboard/employees/${id}`);
     return { success: true };
-  } catch {
+  } catch (e) {
+    console.error('[updateEmployee]', e);
     return { success: false, error: "Erreur lors de la mise à jour de l'employé." };
   }
 }
@@ -360,7 +370,7 @@ export async function updateEmployeeStatus(
   id: string,
   status: EmployeeStatus
 ): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
   const employee = await prisma.employee.findFirst({
     where: { id, organizationId: orgId },
@@ -378,13 +388,14 @@ export async function updateEmployeeStatus(
     revalidatePath('/dashboard/employees');
     revalidatePath(`/dashboard/employees/${id}`);
     return { success: true };
-  } catch {
+  } catch (e) {
+    console.error('[updateEmployeeStatus]', e);
     return { success: false, error: 'Erreur lors de la mise à jour du statut.' };
   }
 }
 
 export async function deleteEmployee(id: string): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
   const employee = await prisma.employee.findFirst({
     where: { id, organizationId: orgId },
@@ -402,7 +413,8 @@ export async function deleteEmployee(id: string): Promise<ActionResult> {
 
     revalidatePath('/dashboard/employees');
     return { success: true };
-  } catch {
+  } catch (e) {
+    console.error('[deleteEmployee]', e);
     return { success: false, error: 'Erreur lors de la suppression.' };
   }
 }

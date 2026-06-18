@@ -13,16 +13,25 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
+      const role = auth?.user?.role;
       const isOnDashboard = nextUrl.pathname.startsWith('/dashboard');
       const isOnAdmin = nextUrl.pathname.startsWith('/admin');
       const isOnAuth = nextUrl.pathname.startsWith('/login') || nextUrl.pathname.startsWith('/register');
 
-      if (isOnDashboard || isOnAdmin) {
-        return isLoggedIn; // Redirect to login if not authenticated
+      if (isOnAdmin) {
+        if (!isLoggedIn) return Response.redirect(new URL('/login', nextUrl));
+        if (role !== 'ORG_ADMIN' && role !== 'SUPER_ADMIN') {
+          return Response.redirect(new URL('/dashboard', nextUrl));
+        }
+        return true;
+      }
+
+      if (isOnDashboard) {
+        return isLoggedIn;
       }
 
       if (isOnAuth && isLoggedIn) {
-        return Response.redirect(new URL('/dashboard', nextUrl)); // Redirect to dashboard if already logged in
+        return Response.redirect(new URL('/dashboard', nextUrl));
       }
 
       return true;

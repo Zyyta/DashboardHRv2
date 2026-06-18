@@ -1,17 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-
-async function getOrgId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.organizationId) {
-    throw new Error('Non autorisé');
-  }
-  return session.user.organizationId;
-}
+import { getOrgId, requireAdminOrgId } from '@/lib/session';
+import { CreateDepartmentSchema, UpdateDepartmentSchema } from '@/lib/validators';
+import type { ActionResult } from '@/types';
 
 export interface DepartmentWithStats {
   id: string;
@@ -60,19 +54,18 @@ export async function getDepartments(): Promise<DepartmentWithStats[]> {
   });
 }
 
-export type ActionResult =
-  | { success: true }
-  | { success: false; error: string };
-
 export async function createDepartment(input: {
   name: string;
   description?: string;
   color: string;
 }): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
-  const name = input.name.trim();
-  if (!name) return { success: false, error: 'Le nom est obligatoire.' };
+  const parsed = CreateDepartmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message };
+  }
+  const name = parsed.data.name.trim();
 
   try {
     await prisma.department.create({
@@ -99,10 +92,13 @@ export async function updateDepartment(
   id: string,
   input: { name: string; description?: string; color: string }
 ): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
-  const name = input.name.trim();
-  if (!name) return { success: false, error: 'Le nom est obligatoire.' };
+  const parsed = UpdateDepartmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message };
+  }
+  const name = parsed.data.name.trim();
 
   // Ensure the department belongs to the caller's organization
   const existing = await prisma.department.findFirst({
@@ -133,7 +129,7 @@ export async function updateDepartment(
 }
 
 export async function deleteDepartment(id: string): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const orgId = await requireAdminOrgId();
 
   const dept = await prisma.department.findFirst({
     where: { id, organizationId: orgId },

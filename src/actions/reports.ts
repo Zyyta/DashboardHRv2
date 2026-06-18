@@ -1,15 +1,7 @@
 'use server';
 
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-
-async function getOrgId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.organizationId) {
-    throw new Error('Non autorisé');
-  }
-  return session.user.organizationId;
-}
+import { getOrgId } from '@/lib/session';
 
 // ---------------------------------------------------------------------------
 // Rapport Effectifs — Full headcount analysis per department
@@ -42,6 +34,7 @@ export async function getDepartmentReport(): Promise<DepartmentReport[]> {
     include: {
       employees: {
         select: {
+          id: true,
           status: true,
           salary: true,
           hireDate: true,
@@ -102,7 +95,7 @@ export async function getDepartmentReport(): Promise<DepartmentReport[]> {
       ages.length > 0 ? Math.round(ages.reduce((s, v) => s + v, 0) / ages.length) : 0;
 
     const deptTerminatedLastYear = terminated.filter((e) =>
-      terminatedIds.has((e as { id?: string }).id ?? '')
+      terminatedIds.has(e.id)
     ).length;
     const turnoverRate =
       all.length > 0
@@ -410,10 +403,19 @@ export async function getOrgSummary(): Promise<OrgSummary> {
   const ninetyDaysAgo = new Date(now); ninetyDaysAgo.setDate(now.getDate() - 90);
   const oneYearAgo = new Date(now); oneYearAgo.setFullYear(now.getFullYear() - 1);
 
+  type AggRow = {
+    avg_salary: number | null;
+    total_payroll: number | null;
+    avg_tenure: number | null;
+    avg_age: number | null;
+    male_count: bigint;
+    female_count: bigint;
+  };
+
   const [
     total, active, onLeave, terminated,
     newHires30, newHires90, terminations12m,
-    employees, deptCount,
+    aggRow, deptCount,
     leaveDays,
   ] = await Promise.all([
     prisma.employee.count({ where: { organizationId: orgId } }),
@@ -423,10 +425,17 @@ export async function getOrgSummary(): Promise<OrgSummary> {
     prisma.employee.count({ where: { organizationId: orgId, hireDate: { gte: thirtyDaysAgo } } }),
     prisma.employee.count({ where: { organizationId: orgId, hireDate: { gte: ninetyDaysAgo } } }),
     prisma.terminationRecord.count({ where: { employee: { organizationId: orgId }, terminationDate: { gte: oneYearAgo } } }),
-    prisma.employee.findMany({
-      where: { organizationId: orgId, status: { not: 'TERMINATED' } },
-      select: { salary: true, hireDate: true, dateOfBirth: true, gender: true },
-    }),
+    prisma.$queryRaw<AggRow[]>`
+      SELECT
+        AVG(salary)                                                              AS avg_salary,
+        SUM(salary)                                                              AS total_payroll,
+        AVG(EXTRACT(EPOCH FROM (NOW() - "hireDate"))    / (365.25 * 86400))     AS avg_tenure,
+        AVG(EXTRACT(EPOCH FROM (NOW() - "dateOfBirth")) / (365.25 * 86400))     AS avg_age,
+        COUNT(*) FILTER (WHERE gender = 'MALE')                                 AS male_count,
+        COUNT(*) FILTER (WHERE gender = 'FEMALE')                               AS female_count
+      FROM employees
+      WHERE "organizationId" = ${orgId} AND status != 'TERMINATED'
+    `,
     prisma.department.count({ where: { organizationId: orgId } }),
     prisma.leaveRecord.aggregate({
       _sum: { days: true },
@@ -438,19 +447,13 @@ export async function getOrgSummary(): Promise<OrgSummary> {
     }),
   ]);
 
-  const salaries = employees.map((e) => e.salary);
-  const avgSalary = salaries.length > 0 ? Math.round(salaries.reduce((s, v) => s + v, 0) / salaries.length) : 0;
-  const totalPayroll = Math.round(salaries.reduce((s, v) => s + v, 0));
-
-  const nowMs = Date.now();
-  const tenures = employees.map((e) => (nowMs - e.hireDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-  const avgTenure = tenures.length > 0 ? Math.round((tenures.reduce((s, v) => s + v, 0) / tenures.length) * 10) / 10 : 0;
-
-  const ages = employees.map((e) => Math.floor((nowMs - e.dateOfBirth.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
-  const avgAge = ages.length > 0 ? Math.round(ages.reduce((s, v) => s + v, 0) / ages.length) : 0;
-
-  const males = employees.filter((e) => e.gender === 'MALE').length;
-  const females = employees.filter((e) => e.gender === 'FEMALE').length;
+  const agg = aggRow[0];
+  const avgSalary = Math.round(Number(agg?.avg_salary) || 0);
+  const totalPayroll = Math.round(Number(agg?.total_payroll) || 0);
+  const avgTenure = Math.round((Number(agg?.avg_tenure) || 0) * 10) / 10;
+  const avgAge = Math.round(Number(agg?.avg_age) || 0);
+  const males = Number(agg?.male_count ?? 0);
+  const females = Number(agg?.female_count ?? 0);
 
   const totalWorkDays = active * 22;
   const absenceRate = totalWorkDays > 0

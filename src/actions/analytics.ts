@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getOrgId } from '@/lib/session';
 
 export interface AttritionRiskEmployee {
   id: string;
@@ -77,9 +77,7 @@ function getRiskLevel(score: number): 'LOW' | 'MEDIUM' | 'HIGH' {
 }
 
 export async function getAttritionRiskData(): Promise<AttritionRiskData> {
-  const session = await auth();
-  if (!session?.user?.organizationId) throw new Error('Non autorisé');
-  const orgId = session.user.organizationId;
+  const orgId = await getOrgId();
 
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);

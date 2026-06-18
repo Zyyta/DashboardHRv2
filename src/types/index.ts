@@ -2,6 +2,8 @@
 // Shared types for the HR Analytics Dashboard
 // =============================================================================
 
+export type ActionResult = { success: true } | { success: false; error: string };
+
 export interface DashboardStats {
   totalEmployees: number;
   activeEmployees: number;

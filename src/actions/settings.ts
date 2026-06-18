@@ -2,17 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { compare, hash } from 'bcryptjs';
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-
-type ActionResult = { success: true } | { success: false; error: string };
-
-async function getAuthedUser() {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.organizationId) throw new Error('Non autorisé');
-  return session.user;
-}
+import { getOrgUser } from '@/lib/session';
+import { UpdateUserProfileSchema, UpdateOrgProfileSchema, ChangePasswordSchema } from '@/lib/validators';
+import type { ActionResult } from '@/types';
 
 export interface OrgSettings {
   user: { id: string; name: string | null; email: string };
@@ -27,10 +21,10 @@ export interface OrgSettings {
 }
 
 export async function getOrgSettings(): Promise<OrgSettings> {
-  const user = await getAuthedUser();
+  const orgUser = await getOrgUser();
 
   const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
+    where: { id: orgUser.id },
     include: {
       organization: {
         include: {
@@ -44,7 +38,7 @@ export async function getOrgSettings(): Promise<OrgSettings> {
   if (!dbUser?.organization) throw new Error('Organisation introuvable');
 
   return {
-    user: { id: dbUser.id, name: dbUser.name, email: dbUser.email },
+    user: { id: dbUser.id, name: dbUser.name, email: dbUser.email! },
     org: {
       id: dbUser.organization.id,
       name: dbUser.organization.name,
@@ -64,11 +58,12 @@ export async function getOrgSettings(): Promise<OrgSettings> {
 }
 
 export async function updateUserProfile(name: string): Promise<ActionResult> {
-  const user = await getAuthedUser();
-  const trimmed = name.trim();
-  if (!trimmed) return { success: false, error: 'Le nom est obligatoire.' };
+  const orgUser = await getOrgUser();
 
-  await prisma.user.update({ where: { id: user.id }, data: { name: trimmed } });
+  const parsed = UpdateUserProfileSchema.safeParse({ name });
+  if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
+
+  await prisma.user.update({ where: { id: orgUser.id }, data: { name: parsed.data.name.trim() } });
   revalidatePath('/dashboard/settings');
   return { success: true };
 }
@@ -77,14 +72,16 @@ export async function updateOrgProfile(input: {
   name: string;
   domain: string;
 }): Promise<ActionResult> {
-  const user = await getAuthedUser();
-  const name = input.name.trim();
-  if (!name) return { success: false, error: "Le nom de l'organisation est obligatoire." };
+  const orgUser = await getOrgUser();
+  if (orgUser.role === 'EMPLOYEE') return { success: false, error: 'Non autorisé.' };
+
+  const parsed = UpdateOrgProfileSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
 
   try {
     await prisma.organization.update({
-      where: { id: user.organizationId! },
-      data: { name, domain: input.domain.trim() || null },
+      where: { id: orgUser.organizationId },
+      data: { name: parsed.data.name.trim(), domain: parsed.data.domain?.trim() || null },
     });
     revalidatePath('/dashboard/settings');
     revalidatePath('/dashboard');
@@ -101,13 +98,13 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<ActionResult> {
-  const user = await getAuthedUser();
+  const orgUser = await getOrgUser();
 
-  if (newPassword.length < 8)
-    return { success: false, error: 'Le mot de passe doit contenir au moins 8 caractères.' };
+  const parsed = ChangePasswordSchema.safeParse({ currentPassword, newPassword });
+  if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
 
   const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
+    where: { id: orgUser.id },
     select: { password: true },
   });
 
@@ -118,7 +115,7 @@ export async function changePassword(
   if (!valid) return { success: false, error: 'Mot de passe actuel incorrect.' };
 
   await prisma.user.update({
-    where: { id: user.id },
+    where: { id: orgUser.id },
     data: { password: await hash(newPassword, 12) },
   });
   return { success: true };

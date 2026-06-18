@@ -1,16 +1,8 @@
 'use server';
 
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { stripe, PLANS } from '@/lib/stripe';
-
-async function getOrgId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.organizationId) {
-    throw new Error('Non autorisé — Aucune organisation associée.');
-  }
-  return session.user.organizationId;
-}
+import { getOrgId, getOrgUser } from '@/lib/session';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
@@ -75,10 +67,8 @@ export async function createCheckoutSession(
   cycle: BillingCycle
 ): Promise<{ url: string } | { error: string }> {
   try {
-    const session = await auth();
-    if (!session?.user?.organizationId) return { error: 'Non autorisé.' };
-
-    const orgId = session.user.organizationId;
+    const orgUser = await getOrgUser();
+    const orgId = orgUser.organizationId;
 
     const org = await prisma.organization.findUnique({
       where: { id: orgId },
@@ -91,7 +81,7 @@ export async function createCheckoutSession(
     let customerId = org.stripeCustomerId;
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email: session.user.email ?? undefined,
+        email: orgUser.email ?? undefined,
         name: org.name,
         metadata: { organizationId: orgId },
       });

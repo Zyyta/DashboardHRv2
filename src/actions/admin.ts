@@ -1,17 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getAuthUser } from '@/lib/session';
+import type { ActionResult } from '@/types';
 import type { UserRole } from '@prisma/client';
-
-type ActionResult = { success: true } | { success: false; error: string };
-
-async function getSession() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error('Non autorisé');
-  return session;
-}
 
 // ---------- ORG-level user management ----------
 
@@ -32,11 +25,14 @@ export interface OrgAdminData {
 }
 
 export async function getOrgAdminData(): Promise<OrgAdminData> {
-  const session = await getSession();
-  if (!session.user.organizationId) throw new Error('Aucune organisation.');
+  const user = await getAuthUser();
+  if (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN') {
+    throw new Error('Non autorisé — rôle insuffisant.');
+  }
+  if (!user.organizationId) throw new Error('Aucune organisation.');
 
   const org = await prisma.organization.findUnique({
-    where: { id: session.user.organizationId },
+    where: { id: user.organizationId },
     include: {
       users: {
         orderBy: { createdAt: 'asc' },
@@ -55,40 +51,59 @@ export async function getOrgAdminData(): Promise<OrgAdminData> {
     orgName: org.name,
     employeeCount: org._count.employees,
     subscription: org.subscription,
-    users: org.users.map((u) => ({ ...u, isSelf: u.id === session.user.id })),
+    users: org.users.map((u) => ({ ...u, isSelf: u.id === user.id })),
   };
 }
 
 export async function updateUserRole(userId: string, role: UserRole): Promise<ActionResult> {
-  const session = await getSession();
-  if (!session.user.organizationId) return { success: false, error: 'Non autorisé.' };
-  if (userId === session.user.id)
+  const user = await getAuthUser();
+  if (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN') {
+    return { success: false, error: 'Non autorisé.' };
+  }
+  if (!user.organizationId) return { success: false, error: 'Non autorisé.' };
+  if (userId === user.id)
     return { success: false, error: 'Vous ne pouvez pas modifier votre propre rôle.' };
+  if (role === 'SUPER_ADMIN' && user.role !== 'SUPER_ADMIN') {
+    return { success: false, error: 'Vous ne pouvez pas assigner le rôle SUPER_ADMIN.' };
+  }
 
   const target = await prisma.user.findFirst({
-    where: { id: userId, organizationId: session.user.organizationId },
+    where: { id: userId, organizationId: user.organizationId },
   });
   if (!target) return { success: false, error: 'Utilisateur introuvable.' };
 
-  await prisma.user.update({ where: { id: userId }, data: { role } });
-  revalidatePath('/admin');
-  return { success: true };
+  try {
+    await prisma.user.update({ where: { id: userId }, data: { role } });
+    revalidatePath('/admin');
+    return { success: true };
+  } catch (e) {
+    console.error('[updateUserRole]', e);
+    return { success: false, error: 'Une erreur est survenue.' };
+  }
 }
 
 export async function removeOrgUser(userId: string): Promise<ActionResult> {
-  const session = await getSession();
-  if (!session.user.organizationId) return { success: false, error: 'Non autorisé.' };
-  if (userId === session.user.id)
+  const user = await getAuthUser();
+  if (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN') {
+    return { success: false, error: 'Non autorisé.' };
+  }
+  if (!user.organizationId) return { success: false, error: 'Non autorisé.' };
+  if (userId === user.id)
     return { success: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' };
 
   const target = await prisma.user.findFirst({
-    where: { id: userId, organizationId: session.user.organizationId },
+    where: { id: userId, organizationId: user.organizationId },
   });
   if (!target) return { success: false, error: 'Utilisateur introuvable.' };
 
-  await prisma.user.delete({ where: { id: userId } });
-  revalidatePath('/admin');
-  return { success: true };
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+    revalidatePath('/admin');
+    return { success: true };
+  } catch (e) {
+    console.error('[removeOrgUser]', e);
+    return { success: false, error: 'Une erreur est survenue.' };
+  }
 }
 
 // ---------- SUPER_ADMIN: platform-level ----------
@@ -112,8 +127,8 @@ export interface PlatformStats {
 }
 
 export async function getPlatformStats(): Promise<PlatformStats> {
-  const session = await getSession();
-  if (session.user.role !== 'SUPER_ADMIN')
+  const user = await getAuthUser();
+  if (user.role !== 'SUPER_ADMIN')
     throw new Error('Accès réservé aux super-administrateurs.');
 
   const [orgs, totalUsers, totalEmployees] = await Promise.all([
