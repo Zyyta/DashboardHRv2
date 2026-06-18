@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { NextAuthConfig } from 'next-auth';
+import type { UserRole } from '@prisma/client';
 
 export const authConfig = {
   pages: {
@@ -11,6 +12,17 @@ export const authConfig = {
     newUser: '/register',
   },
   callbacks: {
+    // Edge-compatible: copies JWT claims → session.user so middleware can read role.
+    // No Prisma here — only reads from the already-decoded token.
+    session({ session, token }) {
+      if (session.user && token) {
+        session.user.role = (token.role ?? 'EMPLOYEE') as UserRole;
+        session.user.organizationId = (token.organizationId as string | null) ?? null;
+        session.user.organizationName = (token.organizationName as string | null) ?? null;
+      }
+      return session;
+    },
+
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const role = auth?.user?.role;

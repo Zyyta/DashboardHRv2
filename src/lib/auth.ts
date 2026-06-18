@@ -58,6 +58,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    // Spread the edge-compatible callbacks (session + authorized) from authConfig,
+    // then add the jwt callback which needs Prisma and cannot run at the edge.
+    ...authConfig.callbacks,
     async jwt({ token, user }) {
       if (user) {
         // Initial sign-in: use values from authorize()
