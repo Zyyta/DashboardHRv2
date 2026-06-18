@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hash } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { createAndSendOtp } from '@/lib/otp';
 import { RegisterSchema, JoinOrgSchema } from '@/lib/validators';
 
 function toSlug(name: string): string {
@@ -73,7 +74,11 @@ async function handleCreate(request: NextRequest) {
           },
         },
       },
+      include: { users: { select: { id: true } } },
     });
+
+    const userId = organization.users[0].id;
+    await createAndSendOtp(userId, 'EMAIL_VERIFY', email);
 
     return NextResponse.json({ success: true, organizationId: organization.id });
   } catch (error) {
@@ -131,6 +136,7 @@ async function handleJoin(request: NextRequest) {
         });
       });
 
+      await createAndSendOtp(user.id, 'EMAIL_VERIFY', email);
       return NextResponse.json({ success: true, userId: user.id });
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';

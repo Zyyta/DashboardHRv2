@@ -1,16 +1,34 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import type { Route } from 'next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BarChart3, Loader2, Eye, EyeOff, CheckCircle2, Building2, Users } from 'lucide-react';
+import { BarChart3, Loader2, Eye, EyeOff, CheckCircle2, Building2, Users, Check, X } from 'lucide-react';
 
 type Flow = 'create' | 'join';
+
+function PasswordRequirements({ password }: { password: string }) {
+  const checks = [
+    { label: 'Au moins 8 caractères', ok: password.length >= 8 },
+    { label: 'Une lettre majuscule', ok: /[A-Z]/.test(password) },
+    { label: 'Un chiffre', ok: /[0-9]/.test(password) },
+  ];
+  return (
+    <div className="space-y-1">
+      {checks.map(({ label, ok }) => (
+        <div key={label} className={`flex items-center gap-1.5 text-xs ${ok ? 'text-emerald-400' : 'text-slate-500'}`}>
+          {ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+          {label}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,19 +37,34 @@ export default function RegisterPage() {
     name: '',
     email: '',
     password: '',
+    confirmPassword: '',
     companyName: '',
     inviteCode: '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const update = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
+  const passwordValid =
+    form.password.length >= 8 && /[A-Z]/.test(form.password) && /[0-9]/.test(form.password);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!passwordValid) {
+      setError('Le mot de passe ne respecte pas les critères de sécurité.');
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -53,20 +86,7 @@ export default function RegisterPage() {
         return;
       }
 
-      const result = await signIn('credentials', {
-        email: form.email,
-        password: form.password,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        setError('Compte créé mais connexion échouée. Veuillez vous connecter manuellement.');
-        router.push('/login');
-        return;
-      }
-
-      router.push('/dashboard');
-      router.refresh();
+      router.push(`/verify-email?email=${encodeURIComponent(form.email)}` as Route);
     } catch {
       setError('Une erreur réseau est survenue. Veuillez réessayer.');
     } finally {
@@ -78,7 +98,7 @@ export default function RegisterPage() {
     "14 jours d'essai gratuit",
     'Aucune carte bancaire requise',
     'Tableau de bord RH complet',
-    'Code d\'invitation généré automatiquement',
+    "Code d'invitation généré automatiquement",
   ];
 
   return (
@@ -133,7 +153,6 @@ export default function RegisterPage() {
               </button>
             </div>
 
-            {/* Perks (create flow only) */}
             {flow === 'create' && (
               <>
                 <div className="grid grid-cols-2 gap-2">
@@ -148,7 +167,6 @@ export default function RegisterPage() {
               </>
             )}
 
-            {/* Join info banner */}
             {flow === 'join' && (
               <>
                 <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-300">
@@ -213,11 +231,10 @@ export default function RegisterPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="8 caractères minimum"
+                    placeholder="••••••••"
                     value={form.password}
                     onChange={update('password')}
                     required
-                    minLength={8}
                     className="border-white/10 bg-white/5 pr-10 text-white placeholder:text-slate-500 focus:border-indigo-500"
                   />
                   <button
@@ -228,10 +245,37 @@ export default function RegisterPage() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                {form.password.length > 0 && form.password.length < 8 && (
-                  <p className="text-xs text-amber-400">
-                    {8 - form.password.length} caractère{8 - form.password.length > 1 ? 's' : ''} manquant{8 - form.password.length > 1 ? 's' : ''}
-                  </p>
+                {form.password.length > 0 && (
+                  <PasswordRequirements password={form.password} />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-slate-300">Confirmer le mot de passe</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirm ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={form.confirmPassword}
+                    onChange={update('confirmPassword')}
+                    required
+                    className={`border-white/10 bg-white/5 pr-10 text-white placeholder:text-slate-500 focus:border-indigo-500 ${
+                      form.confirmPassword && form.confirmPassword !== form.password
+                        ? 'border-red-500/50'
+                        : ''
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  >
+                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {form.confirmPassword && form.confirmPassword !== form.password && (
+                  <p className="text-xs text-red-400">Les mots de passe ne correspondent pas.</p>
                 )}
               </div>
 
@@ -257,7 +301,7 @@ export default function RegisterPage() {
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {flow === 'create' ? 'Création en cours…' : 'Connexion en cours…'}
+                    Création en cours…
                   </>
                 ) : flow === 'create' ? (
                   "Démarrer l'essai gratuit"

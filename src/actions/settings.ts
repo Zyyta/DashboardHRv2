@@ -9,7 +9,7 @@ import { UpdateUserProfileSchema, UpdateOrgProfileSchema, ChangePasswordSchema }
 import type { ActionResult } from '@/types';
 
 export interface OrgSettings {
-  user: { id: string; name: string | null; email: string };
+  user: { id: string; name: string | null; email: string; twoFactorEnabled: boolean };
   org: { id: string; name: string; slug: string; domain: string | null };
   subscription: {
     plan: string;
@@ -38,7 +38,7 @@ export async function getOrgSettings(): Promise<OrgSettings> {
   if (!dbUser?.organization) throw new Error('Organisation introuvable');
 
   return {
-    user: { id: dbUser.id, name: dbUser.name, email: dbUser.email! },
+    user: { id: dbUser.id, name: dbUser.name, email: dbUser.email!, twoFactorEnabled: dbUser.twoFactorEnabled },
     org: {
       id: dbUser.organization.id,
       name: dbUser.organization.name,

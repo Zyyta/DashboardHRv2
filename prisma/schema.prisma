@@ -73,6 +73,13 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
+enum OtpPurpose {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  TWO_FACTOR
+  DELETE_ACCOUNT
+}
+
 // =============================================================================
 // Multi-tenancy — Organization (Tenant)
 // =============================================================================
@@ -120,9 +127,13 @@ model User {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  // 2FA
+  twoFactorEnabled Boolean @default(false)
+
   // NextAuth relations
   accounts Account[]
   sessions Session[]
+  otpCodes OtpCode[]
 
   @@index([organizationId])
   @@map("users")
@@ -166,6 +177,21 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+model OtpCode {
+  id        String     @id @default(cuid())
+  userId    String
+  purpose   OtpPurpose
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, purpose])
+  @@map("otp_codes")
 }
 
 // =============================================================================

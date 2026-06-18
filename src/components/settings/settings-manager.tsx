@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { signOut } from 'next-auth/react';
 import { toast } from 'sonner';
-import { User, Building2, CreditCard, Lock, Check, Loader2, Eye, EyeOff } from 'lucide-react';
+import { User, Building2, CreditCard, Lock, Check, Loader2, Eye, EyeOff, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,13 @@ import {
   changePassword,
   type OrgSettings,
 } from '@/actions/settings';
+import {
+  sendTwoFactorOtp,
+  enableTwoFactor,
+  disableTwoFactor,
+  sendDeleteAccountOtp,
+  deleteAccount,
+} from '@/actions/auth-otp';
 
 const PLAN_LABELS: Record<string, string> = {
   STARTER: 'Starter',
@@ -297,7 +305,8 @@ function SubscriptionTab({ subscription }: { subscription: OrgSettings['subscrip
 // ---------------------------------------------------------------------------
 // Security tab
 // ---------------------------------------------------------------------------
-function SecurityTab() {
+function SecurityTab({ user }: { user: OrgSettings['user'] }) {
+  // Change password
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -305,13 +314,25 @@ function SecurityTab() {
   const [showNext, setShowNext] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  // 2FA
+  const [twoFaEnabled, setTwoFaEnabled] = useState(user.twoFactorEnabled);
+  const [twoFaStep, setTwoFaStep] = useState<'idle' | 'confirm'>('idle');
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+
+  // Delete account
+  const [deleteStep, setDeleteStep] = useState<'idle' | 'confirm'>('idle');
+  const [deleteCode, setDeleteCode] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   function handleChange() {
-    if (next !== confirm) {
-      toast.error('Les nouveaux mots de passe ne correspondent pas.');
+    const pwValid = next.length >= 8 && /[A-Z]/.test(next) && /[0-9]/.test(next);
+    if (!pwValid) {
+      toast.error('Le mot de passe ne respecte pas les critères de sécurité.');
       return;
     }
-    if (next.length < 8) {
-      toast.error('Le nouveau mot de passe doit contenir au moins 8 caractères.');
+    if (next !== confirm) {
+      toast.error('Les nouveaux mots de passe ne correspondent pas.');
       return;
     }
     startTransition(async () => {
@@ -327,16 +348,85 @@ function SecurityTab() {
     });
   }
 
-  const strength = next.length === 0 ? 0 : next.length < 8 ? 1 : next.length < 12 ? 2 : /[A-Z]/.test(next) && /[0-9]/.test(next) ? 4 : 3;
-  const strengthLabels = ['', 'Faible', 'Moyen', 'Bon', 'Excellent'];
-  const strengthColors = ['', 'bg-red-500', 'bg-amber-500', 'bg-blue-500', 'bg-emerald-500'];
+  async function handleTwoFaToggle() {
+    setTwoFaLoading(true);
+    try {
+      const result = await sendTwoFactorOtp();
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      setTwoFaCode('');
+      setTwoFaStep('confirm');
+    } finally {
+      setTwoFaLoading(false);
+    }
+  }
+
+  async function handleTwoFaConfirm() {
+    setTwoFaLoading(true);
+    try {
+      const result = twoFaEnabled
+        ? await disableTwoFactor(twoFaCode)
+        : await enableTwoFactor(twoFaCode);
+
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      setTwoFaEnabled(!twoFaEnabled);
+      setTwoFaStep('idle');
+      setTwoFaCode('');
+      toast.success(twoFaEnabled ? '2FA désactivée.' : '2FA activée avec succès.');
+    } finally {
+      setTwoFaLoading(false);
+    }
+  }
+
+  async function handleDeleteRequest() {
+    setDeleteLoading(true);
+    try {
+      const result = await sendDeleteAccountOtp();
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      setDeleteCode('');
+      setDeleteStep('confirm');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    setDeleteLoading(true);
+    try {
+      const result = await deleteAccount(deleteCode);
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success('Compte supprimé.');
+      await signOut({ callbackUrl: '/' });
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  const nextChecks = {
+    length: next.length >= 8,
+    uppercase: /[A-Z]/.test(next),
+    number: /[0-9]/.test(next),
+  };
+  const nextValid = nextChecks.length && nextChecks.uppercase && nextChecks.number;
 
   return (
     <div className="space-y-6">
+      {/* Change password */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Changer le mot de passe</CardTitle>
-          <CardDescription>Utilisez un mot de passe fort d&apos;au moins 8 caractères.</CardDescription>
+          <CardDescription>Le nouveau mot de passe doit respecter les critères ci-dessous.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -381,15 +471,16 @@ function SecurityTab() {
             </div>
             {next.length > 0 && (
               <div className="space-y-1">
-                <div className="flex gap-1 h-1">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className={`flex-1 rounded-full transition-all ${i <= strength ? strengthColors[strength] : 'bg-muted'}`}
-                    />
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">{strengthLabels[strength]}</p>
+                {[
+                  { label: 'Au moins 8 caractères', ok: nextChecks.length },
+                  { label: 'Une lettre majuscule', ok: nextChecks.uppercase },
+                  { label: 'Un chiffre', ok: nextChecks.number },
+                ].map(({ label, ok }) => (
+                  <div key={label} className={`flex items-center gap-1.5 text-xs ${ok ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                    {ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                    {label}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -412,12 +503,151 @@ function SecurityTab() {
           <div className="flex justify-end">
             <Button
               onClick={handleChange}
-              disabled={isPending || !current || !next || next !== confirm}
+              disabled={isPending || !current || !nextValid || next !== confirm}
             >
               {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
               Modifier le mot de passe
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Two-factor authentication */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Authentification à deux facteurs
+          </CardTitle>
+          <CardDescription>
+            {twoFaEnabled
+              ? 'La 2FA est activée. Un code email vous sera demandé à chaque connexion.'
+              : 'Ajoutez une couche de sécurité supplémentaire avec un code email à chaque connexion.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${twoFaEnabled ? 'bg-emerald-500' : 'bg-muted-foreground'}`} />
+              <span className="text-sm font-medium">
+                {twoFaEnabled ? 'Activée' : 'Désactivée'}
+              </span>
+            </div>
+            {twoFaStep === 'idle' && (
+              <Button
+                variant={twoFaEnabled ? 'outline' : 'default'}
+                size="sm"
+                onClick={handleTwoFaToggle}
+                disabled={twoFaLoading}
+              >
+                {twoFaLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : twoFaEnabled ? (
+                  <ShieldOff className="mr-2 h-4 w-4" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                )}
+                {twoFaEnabled ? 'Désactiver la 2FA' : 'Activer la 2FA'}
+              </Button>
+            )}
+          </div>
+
+          {twoFaStep === 'confirm' && (
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">
+                Un code a été envoyé à <strong>{user.email}</strong>. Entrez-le pour{' '}
+                {twoFaEnabled ? 'désactiver' : 'activer'} la 2FA.
+              </p>
+              <Input
+                placeholder="123456"
+                value={twoFaCode}
+                onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                className="text-center text-xl font-bold tracking-[0.4em]"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleTwoFaConfirm}
+                  disabled={twoFaLoading || twoFaCode.length !== 6}
+                >
+                  {twoFaLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirmer
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setTwoFaStep('idle'); setTwoFaCode(''); }}
+                  disabled={twoFaLoading}
+                >
+                  Annuler
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Delete account — danger zone */}
+      <Card className="border-destructive/30">
+        <CardHeader>
+          <CardTitle className="text-base text-destructive flex items-center gap-2">
+            <Trash2 className="h-4 w-4" />
+            Zone de danger
+          </CardTitle>
+          <CardDescription>
+            La suppression de votre compte est définitive et irréversible.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {deleteStep === 'idle' ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteRequest}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Supprimer mon compte
+            </Button>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <p className="text-sm text-muted-foreground">
+                Un code de confirmation a été envoyé à <strong>{user.email}</strong>.
+                Cette action est <strong>irréversible</strong>.
+              </p>
+              <Input
+                placeholder="123456"
+                value={deleteCode}
+                onChange={(e) => setDeleteCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                className="text-center text-xl font-bold tracking-[0.4em] border-destructive/50"
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDeleteConfirm}
+                  disabled={deleteLoading || deleteCode.length !== 6}
+                >
+                  {deleteLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirmer la suppression
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setDeleteStep('idle'); setDeleteCode(''); }}
+                  disabled={deleteLoading}
+                >
+                  Annuler
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -455,7 +685,7 @@ export function SettingsManager({ settings }: Props) {
         <SubscriptionTab subscription={settings.subscription} />
       </TabsContent>
       <TabsContent value="security">
-        <SecurityTab />
+        <SecurityTab user={settings.user} />
       </TabsContent>
     </Tabs>
   );

@@ -9,6 +9,7 @@ import Credentials from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { authConfig } from '@/lib/auth.config';
+import { verifyOtp } from '@/lib/otp';
 import type { UserRole } from '@prisma/client';
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -21,28 +22,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Mot de passe', type: 'password' },
+        otp: { label: 'Code OTP', type: 'text' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
+        if (!credentials?.email || !credentials?.password) return null;
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email as string },
           include: { organization: true },
         });
 
-        if (!user || !user.password) {
-          return null;
-        }
+        if (!user || !user.password) return null;
 
         const isPasswordValid = await compare(
           credentials.password as string,
           user.password
         );
+        if (!isPasswordValid) return null;
 
-        if (!isPasswordValid) {
-          return null;
+        // Email must be verified before login is allowed
+        if (!user.emailVerified) return null;
+
+        // 2FA gate: if enabled, a valid OTP must be present
+        if (user.twoFactorEnabled) {
+          const otp = credentials.otp as string | undefined;
+          if (!otp) return null;
+          const result = await verifyOtp(user.id, 'TWO_FACTOR', otp);
+          if (!result.success) return null;
         }
 
         return {

@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+export const passwordSchema = z
+  .string()
+  .min(8, 'Le mot de passe doit contenir au moins 8 caractères.')
+  .regex(/[A-Z]/, 'Le mot de passe doit contenir au moins une lettre majuscule.')
+  .regex(/[0-9]/, 'Le mot de passe doit contenir au moins un chiffre.');
+
 export const CreateEmployeeSchema = z.object({
   firstName: z.string().min(1, 'Le prénom est obligatoire.').max(100),
   lastName: z.string().min(1, 'Le nom est obligatoire.').max(100),
@@ -32,16 +38,14 @@ export const UpdateDepartmentSchema = CreateDepartmentSchema;
 export const RegisterSchema = z.object({
   name: z.string().min(1, 'Le nom est obligatoire.').max(100),
   email: z.string().email('Adresse email invalide.'),
-  password: z
-    .string()
-    .min(8, 'Le mot de passe doit contenir au moins 8 caractères.'),
+  password: passwordSchema,
   companyName: z.string().min(1, "Le nom de l'entreprise est obligatoire.").max(200),
 });
 
 export const JoinOrgSchema = z.object({
   name: z.string().min(1, 'Le nom est obligatoire.').max(100),
   email: z.string().email('Adresse email invalide.'),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères.'),
+  password: passwordSchema,
   inviteCode: z.string().min(1, "Le code d'invitation est obligatoire."),
 });
 
@@ -56,5 +60,11 @@ export const UpdateOrgProfileSchema = z.object({
 
 export const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Le mot de passe actuel est obligatoire.'),
-  newPassword: z.string().min(8, 'Le nouveau mot de passe doit contenir au moins 8 caractères.'),
+  newPassword: passwordSchema,
+});
+
+export const ResetPasswordSchema = z.object({
+  email: z.string().email('Adresse email invalide.'),
+  code: z.string().length(6, 'Le code doit contenir 6 chiffres.').regex(/^\d+$/, 'Le code ne doit contenir que des chiffres.'),
+  newPassword: passwordSchema,
 });
