@@ -54,5 +54,12 @@ export async function sendOtpEmail(to: string, code: string, purpose: string): P
     return;
   }
 
-  await resend.emails.send({ from: FROM, to, subject, html });
+  const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
+
+  if (error) {
+    console.error('[Resend] Send failed:', JSON.stringify(error));
+    throw new Error(`Email send failed: ${error.message}`);
+  }
+
+  console.log('[Resend] Sent OK:', data?.id);
 }
