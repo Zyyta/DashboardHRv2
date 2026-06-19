@@ -1,10 +1,20 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 
-const FROM = process.env.EMAIL_FROM ?? 'PeopleView <noreply@peopleview.app>';
+const transporter =
+  GMAIL_USER && GMAIL_APP_PASSWORD
+    ? nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      })
+    : null;
+
+// Gmail forces the From to the authenticated account, so we always send from
+// GMAIL_USER. The display name is configurable; the address is not.
+const FROM_NAME = process.env.EMAIL_FROM_NAME ?? 'PeopleView';
+const FROM = `${FROM_NAME} <${GMAIL_USER}>`;
 
 const SUBJECTS: Record<string, string> = {
   EMAIL_VERIFY: 'Vérifiez votre adresse email — PeopleView',
@@ -47,19 +57,19 @@ export async function sendOtpEmail(to: string, code: string, purpose: string): P
   const subject = SUBJECTS[purpose] ?? 'Code de vérification — PeopleView';
   const html = buildHtml(code, purpose);
 
-  if (!resend) {
+  if (!transporter) {
     console.log(
       `\n[EMAIL DEV — ${purpose}]\nTo: ${to}\nSubject: ${subject}\nCode: ${code}\n`
     );
     return;
   }
 
-  const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
-
-  if (error) {
-    console.error('[Resend] Send failed:', JSON.stringify(error));
-    throw new Error(`Email send failed: ${error.message}`);
+  try {
+    const info = await transporter.sendMail({ from: FROM, to, subject, html });
+    console.log('[Gmail] Sent OK:', info.messageId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Gmail] Send failed:', message);
+    throw new Error(`Email send failed: ${message}`);
   }
-
-  console.log('[Resend] Sent OK:', data?.id);
 }
