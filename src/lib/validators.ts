@@ -15,12 +15,13 @@ export const CreateEmployeeSchema = z.object({
   dateOfBirth: z.string().min(1, 'La date de naissance est obligatoire.'),
   hireDate: z.string().min(1, "La date d'embauche est obligatoire."),
   salary: z.string().min(1, 'Le salaire est obligatoire.'),
-  departmentId: z.string().cuid('Département invalide.'),
+  departmentName: z.string().min(1, 'Le département est obligatoire.').max(100),
   phone: z.string().max(30).optional(),
   address: z.string().max(500).optional(),
 });
 
-export const UpdateEmployeeSchema = CreateEmployeeSchema.extend({
+export const UpdateEmployeeSchema = CreateEmployeeSchema.omit({ departmentName: true }).extend({
+  departmentId: z.string().cuid('Département invalide.'),
   status: z.enum(['ACTIVE', 'ON_LEAVE', 'TERMINATED'], { message: 'Statut invalide.' }),
 });
 

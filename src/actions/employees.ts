@@ -233,7 +233,7 @@ export async function createEmployee(data: {
   dateOfBirth: string;
   hireDate: string;
   salary: string;
-  departmentId: string;
+  departmentName: string;
   phone?: string;
   address?: string;
 }): Promise<ActionResult> {
@@ -256,11 +256,14 @@ export async function createEmployee(data: {
     return { success: false, error: 'Un employé avec cet email existe déjà.' };
   }
 
-  const dept = await prisma.department.findFirst({
-    where: { id: data.departmentId, organizationId: orgId },
+  const deptName = data.departmentName.trim();
+  let dept = await prisma.department.findFirst({
+    where: { name: { equals: deptName, mode: 'insensitive' }, organizationId: orgId },
   });
   if (!dept) {
-    return { success: false, error: 'Département introuvable.' };
+    dept = await prisma.department.create({
+      data: { name: deptName, organizationId: orgId },
+    });
   }
 
   try {
@@ -283,7 +286,7 @@ export async function createEmployee(data: {
           dateOfBirth: new Date(data.dateOfBirth),
           hireDate: new Date(data.hireDate),
           salary: salaryNum,
-          departmentId: data.departmentId,
+          departmentId: dept.id,
           phone: data.phone?.trim() || null,
           address: data.address?.trim() || null,
           organizationId: orgId,

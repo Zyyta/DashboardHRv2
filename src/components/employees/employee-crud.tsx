@@ -68,6 +68,7 @@ interface FormState {
   hireDate: string;
   salary: string;
   departmentId: string;
+  departmentName: string;
   status: string;
   phone: string;
   address: string;
@@ -88,7 +89,7 @@ function toDateStr(date: Date | string): string {
 const EMPTY_FORM: FormState = {
   firstName: '', lastName: '', email: '', position: '',
   gender: 'MALE', dateOfBirth: '', hireDate: todayStr(),
-  salary: '', departmentId: '', status: 'ACTIVE',
+  salary: '', departmentId: '', departmentName: '', status: 'ACTIVE',
   phone: '', address: '',
 };
 
@@ -103,6 +104,7 @@ function fromEmployee(emp: EmployeeRow): FormState {
     hireDate: toDateStr(emp.hireDate),
     salary: String(emp.salary),
     departmentId: emp.department.id,
+    departmentName: emp.department.name,
     status: emp.status,
     phone: emp.phone ?? '',
     address: emp.address ?? '',
@@ -117,12 +119,14 @@ function EmployeeFormBody({
   departments,
   showStatus,
   isPending,
+  freeDepartmentInput = false,
 }: {
   form: FormState;
   onChange: (field: keyof FormState, value: string) => void;
   departments: Dept[];
   showStatus: boolean;
   isPending: boolean;
+  freeDepartmentInput?: boolean;
 }) {
   const f = (field: keyof FormState) => (value: string) => onChange(field, value);
 
@@ -246,19 +250,29 @@ function EmployeeFormBody({
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Département *</Label>
-          <Select value={form.departmentId} onValueChange={f('departmentId')} disabled={isPending}>
-            <SelectTrigger>
-              <SelectValue placeholder="Sélectionner…" />
-            </SelectTrigger>
-            <SelectContent>
-              {departments.map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="ef-department">Département *</Label>
+          {freeDepartmentInput ? (
+            <Input
+              id="ef-department"
+              placeholder="Ressources Humaines"
+              value={form.departmentName}
+              onChange={(e) => onChange('departmentName', e.target.value)}
+              disabled={isPending}
+            />
+          ) : (
+            <Select value={form.departmentId} onValueChange={f('departmentId')} disabled={isPending}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionner…" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 
@@ -320,7 +334,7 @@ export function AddEmployeeButton({ departments }: { departments: Dept[] }) {
     if (!form.dateOfBirth) return 'La date de naissance est requise.';
     if (!form.hireDate) return "La date d'embauche est requise.";
     if (!form.salary || isNaN(parseFloat(form.salary))) return 'Un salaire valide est requis.';
-    if (!form.departmentId) return 'Veuillez sélectionner un département.';
+    if (!form.departmentName.trim()) return 'Le département est requis.';
     return null;
   }
 
@@ -338,7 +352,7 @@ export function AddEmployeeButton({ departments }: { departments: Dept[] }) {
         dateOfBirth: form.dateOfBirth,
         hireDate: form.hireDate,
         salary: form.salary,
-        departmentId: form.departmentId,
+        departmentName: form.departmentName,
         phone: form.phone || undefined,
         address: form.address || undefined,
       });
@@ -373,6 +387,7 @@ export function AddEmployeeButton({ departments }: { departments: Dept[] }) {
           departments={departments}
           showStatus={false}
           isPending={isPending}
+          freeDepartmentInput
         />
 
         <DialogFooter>
